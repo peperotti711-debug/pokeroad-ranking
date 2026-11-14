@@ -1,5 +1,6 @@
+
 export const firebaseConfig = {
-  apiKey: "AIzaSyDGFFpJnffG4bg4t6_0TfAaok8tqzSX6uo",
+  apiKey: "AIzaSyDGFFpJnfFG4bg4t6_0TfAaok8tqzSX6uo",
   authDomain: "pokeroad-ranking.firebaseapp.com",
   projectId: "pokeroad-ranking",
   storageBucket: "pokeroad-ranking.firebasestorage.app",
