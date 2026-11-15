@@ -116,7 +116,11 @@ function ranking(cat,month=null,bestOnly=false){
 function rankClass(rank){return rank===1?'rank-gold':rank===2?'rank-silver':rank===3?'rank-bronze':'rank-regular'}
 function postHtml(p,rank=null){const owner=profiles[p.uid]||{};const canDelete=user&&(isAdmin||p.uid===user.uid);return `<div class="item">${rank!==null?`<div class="rank ${rankClass(rank)}">${rank}位</div>`:''}<button class="secondary mini person" data-uid="${safe(p.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div><span class="pill">残り ${p.moves} 手</span> <span class="small">${safe(p.category)}</span></div><div class="muted">${dateStr(dateOf(p))}</div></div><button class="secondary mini viewphoto" data-url="${safe(imageUrl(p.image))}">画像を見る</button>${canDelete?`<button class="danger mini deletepost" data-id="${safe(p.id)}">削除</button>`:''}</div>`}
 function renderRanking(){const month=period==='month'?monthKey(new Date()):null;const bestOnly=period==='best';show('rankCategoryWrap',!bestOnly);const arr=ranking(bestOnly?null:$('rankCategory').value,month,bestOnly);$('rankingList').innerHTML=arr.length?arr.map((p,i)=>postHtml(p,i+1)).join(''):'まだ投稿がありません。'}
-function socialLinks(owner){const links=Array.isArray(owner.snsLinks)?owner.snsLinks:[];return links.filter(u=>typeof u==='string'&&/^https:\/\//i.test(u)).slice(0,3).map((u,i)=>`<a href="${safe(u)}" target="_blank" rel="noopener noreferrer" class="social-link">SNSリンク ${i+1} ↗</a>`).join('')}
+
+
+function socialLinks(owner){const links=Array.isArray(owner.snsLinks)?owner.snsLinks:[];return links.filter(u=>typeof u==='string'&&/^https:\/\//i.test(u)).slice(0,3).map(u=>{try{const url=new URL(u);const display=(url.hostname.replace(/^www\./,'')+url.pathname.replace(/\/$/,'')).slice(0,48);return `<a href="${safe(url.href)}" target="_blank" rel="noopener noreferrer" class="social-link">${safe(display)} ↗</a>`;}catch{return '';}}).join('');}
+  
+  
 function renderProfile(){const uid=profileUid||user.uid,owner=profiles[uid]||{},mine=posts.filter(p=>p.uid===uid),best=sorted(mine)[0];const currentMonth=monthKey(new Date());
  const months=[...new Set(posts.map(p=>monthKey(dateOf(p))))].filter(m=>m<currentMonth).sort().reverse();
  const history=months.map(month=>`<div class="monthly-group"><b>${safe(month)}</b>${categories.map(cat=>{const pos=ranking(cat,month,true).findIndex(p=>p.uid===uid);return `<div class="monthly-row"><span>${safe(cat)}</span><b>${pos<0?'／':`${pos+1}位`}</b></div>`}).join('')}</div>`);
