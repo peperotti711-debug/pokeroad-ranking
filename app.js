@@ -213,7 +213,9 @@ async function verifyFinishImage(file){
     if(w<250||h<400)throw Error('画像の解像度が低すぎます');
     // Relative coordinates work with different phone and tablet resolutions.
     const regions=[
-      {x:0,y:0,w:.65,h:.32,lang:'eng',type:'pr'},
+      {x:0,y:.045,w:.31,h:.13,lang:'eng',type:'pr'},
+      {x:0,y:0,w:.55,h:.25,lang:'eng',type:'pr'},
+      {x:.56,y:.37,w:.44,h:.15,lang:'jpn',type:'mega'},
       {x:.30,y:.10,w:.70,h:.68,lang:'jpn',type:'mega'}
     ];
     for(const r of regions){
@@ -227,13 +229,20 @@ async function verifyFinishImage(file){
       if(!ctx)throw Error('画像を処理できませんでした');
       ctx.drawImage(bitmap,x,y,rw,rh,0,0,canvas.width,canvas.height);
       const original=ctx.getImageData(0,0,canvas.width,canvas.height);
-      for(const mode of ['normal','contrast']){
-        if(mode==='contrast'){
+      for(const mode of ['normal','brighten','contrast']){
+        if(mode!=='normal'){
+          // Restore the source before each preprocessing pass.
+          ctx.putImageData(original,0,0);
           const pixels=new Uint8ClampedArray(original.data);
           for(let i=0;i<pixels.length;i+=4){
             const gray=.299*pixels[i]+.587*pixels[i+1]+.114*pixels[i+2];
-            const adjusted=Math.max(0,Math.min(255,(gray-128)*1.7+128));
-            pixels[i]=pixels[i+1]=pixels[i+2]=adjusted;
+            if(mode==='brighten'){
+              // Gamma brightening reveals lettering under translucent dark overlays.
+              for(let c=0;c<3;c++)pixels[i+c]=Math.min(255,255*Math.pow(pixels[i+c]/255,.48));
+            }else{
+              const adjusted=Math.max(0,Math.min(255,(gray-128)*1.7+128));
+              pixels[i]=pixels[i+1]=pixels[i+2]=adjusted;
+            }
           }
           ctx.putImageData(new ImageData(pixels,canvas.width,canvas.height),0,0);
         }
