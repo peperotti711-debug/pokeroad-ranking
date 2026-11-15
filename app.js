@@ -6,6 +6,7 @@ import {cloudinaryConfig} from './cloudinary-config.js';
 const $=id=>document.getElementById(id), show=(id,on=true)=>$(id).classList.toggle('hidden',!on);
 let auth,db,user=null,posts=[],profiles={},period='all',page='home',profileUid=null,cardInfo=null,creatingAccount=false,isAdmin=false;
 const categories=['混合編成','リレーラッシュ編成','その他'];
+const categoryLabel=cat=>cat==='混合編成'?'コンボ編成':cat;
 const notify=(s)=>{const e=$('notice');e.textContent=s;show('notice');setTimeout(()=>show('notice',false),4500)};
 const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const dateStr=d=>new Intl.DateTimeFormat('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(d);
@@ -114,7 +115,7 @@ function ranking(cat,month=null,bestOnly=false){
  const seen=new Set();return filtered.filter(p=>{if(seen.has(p.uid))return false;seen.add(p.uid);return true}).slice(0,100);
 }
 function rankClass(rank){return rank===1?'rank-gold':rank===2?'rank-silver':rank===3?'rank-bronze':'rank-regular'}
-function postHtml(p,rank=null){const owner=profiles[p.uid]||{};const canDelete=user&&(isAdmin||p.uid===user.uid);return `<div class="item">${rank!==null?`<div class="rank ${rankClass(rank)}">${rank}位</div>`:''}<button class="secondary mini person" data-uid="${safe(p.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div><span class="pill">残り ${p.moves} 手</span> <span class="small">${safe(p.category)}</span></div><div class="muted">${dateStr(dateOf(p))}</div></div><button class="secondary mini viewphoto" data-url="${safe(imageUrl(p.image))}">画像を見る</button>${canDelete?`<button class="danger mini deletepost" data-id="${safe(p.id)}">削除</button>`:''}</div>`}
+function postHtml(p,rank=null){const owner=profiles[p.uid]||{};const canDelete=user&&(isAdmin||p.uid===user.uid);return `<div class="item">${rank!==null?`<div class="rank ${rankClass(rank)}">${rank}位</div>`:''}<button class="secondary mini person" data-uid="${safe(p.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div><span class="pill">残り ${p.moves} 手</span> <span class="small">${safe(categoryLabel(p.category))}</span></div><div class="muted">${dateStr(dateOf(p))}</div></div><button class="secondary mini viewphoto" data-url="${safe(imageUrl(p.image))}">画像を見る</button>${canDelete?`<button class="danger mini deletepost" data-id="${safe(p.id)}">削除</button>`:''}</div>`}
 function renderRanking(){const month=period==='month'?monthKey(new Date()):null;const bestOnly=period==='best';show('rankCategoryWrap',!bestOnly);const arr=ranking(bestOnly?null:$('rankCategory').value,month,bestOnly);$('rankingList').innerHTML=arr.length?arr.map((p,i)=>postHtml(p,i+1)).join(''):'まだ投稿がありません。'}
 
 
@@ -123,7 +124,7 @@ function socialLinks(owner){const links=Array.isArray(owner.snsLinks)?owner.snsL
   
 function renderProfile(){const uid=profileUid||user.uid,owner=profiles[uid]||{},mine=posts.filter(p=>p.uid===uid),best=sorted(mine)[0];const currentMonth=monthKey(new Date());
  const months=[...new Set(posts.map(p=>monthKey(dateOf(p))))].filter(m=>m<currentMonth).sort().reverse();
- const history=months.map(month=>`<div class="monthly-group"><b>${safe(month)}</b>${categories.map(cat=>{const pos=ranking(cat,month,true).findIndex(p=>p.uid===uid);return `<div class="monthly-row"><span>${safe(cat)}</span><b>${pos<0?'／':`${pos+1}位`}</b></div>`}).join('')}</div>`);
+ const history=months.map(month=>`<div class="monthly-group"><b>${safe(month)}</b>${categories.map(cat=>{const pos=ranking(cat,month,true).findIndex(p=>p.uid===uid);return `<div class="monthly-row"><span>${safe(categoryLabel(cat))}</span><b>${pos<0?'／':`${pos+1}位`}</b></div>`}).join('')}</div>`);
  $('profileContent').innerHTML=`<div class="flex">${avatar(owner,true)}<div><h2>${safe(owner.name||'ユーザー')}</h2><div class="muted">${uid===user.uid?'自分のプロフィール':'ユーザープロフィール'}</div></div></div>${socialLinks(owner)?`<div class="social-links">${socialLinks(owner)}</div>`:''}<hr><div>投稿数（完走回数）</div><div class="stat">${mine.length} 回</div><h3>自己ベスト（最高残り手数）</h3>${best?postHtml(best):'<p class="muted">まだ記録がありません</p>'}<h3>月毎のランキング順位</h3>${history.join('')||'<p class="muted">ランキング履歴がありません</p>'}<h3>投稿履歴</h3>${sorted(mine).map(p=>postHtml(p)).join('')||'<p class="muted">まだ投稿がありません</p>'}`}
 function renderAdmin(){if(!isAdmin)return;const all=[...posts].sort((a,b)=>dateOf(b)-dateOf(a));$('adminList').innerHTML=all.length?all.map(p=>postHtml(p)).join(''):'投稿はありません';}
 async function verifyDeletionCard(){
@@ -149,7 +150,7 @@ async function verifyDeletionCard(){
  await reauthenticateWithCredential(user,credential);
  if(auth.currentUser?.uid!==currentUid)throw Error('ログイン中のアカウントが変更されました。もう一度ログインしてください');
 }
-async function deletePost(id){if(!user)return;const p=posts.find(x=>x.id===id);if(!p||(!isAdmin&&p.uid!==user.uid))return;if(!confirm(`この投稿を削除しますか？\n${profiles[p.uid]?.name||'ユーザー'} / ${p.category} / 残り${p.moves}手\n削除すると元に戻せません。`))return;try{if(!isAdmin)await verifyDeletionCard();await deleteDoc(doc(db,'posts',id));/* Cloudinary上の画像削除にはサーバー側の認証処理が必要です。Firestoreの投稿のみ削除します。 */await load();notify('投稿を削除しました')}catch(err){notify('削除に失敗：'+errorText(err))}}
+async function deletePost(id){if(!user)return;const p=posts.find(x=>x.id===id);if(!p||(!isAdmin&&p.uid!==user.uid))return;if(!confirm(`この投稿を削除しますか？\n${profiles[p.uid]?.name||'ユーザー'} / ${categoryLabel(p.category)} / 残り${p.moves}手\n削除すると元に戻せません。`))return;try{if(!isAdmin)await verifyDeletionCard();await deleteDoc(doc(db,'posts',id));/* Cloudinary上の画像削除にはサーバー側の認証処理が必要です。Firestoreの投稿のみ削除します。 */await load();notify('投稿を削除しました')}catch(err){notify('削除に失敗：'+errorText(err))}}
 function render(){if(!user)return;if(page==='ranking')renderRanking();if(page==='admin')renderAdmin();if(page==='profile')renderProfile();if(page==='settings'){const profile=profiles[user.uid]||{};$('editName').value=profile.name||'';for(let i=0;i<3;i++)$('social'+(i+1)).value=(profile.snsLinks||[])[i]||''}}
 function go(next){page=next;for(const n of ['home','ranking','profile','settings','admin'])show(n+'Page',n===next);document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===next));render();scrollTo(0,0)}
 function previousMonth(){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-1);return monthKey(d)}
@@ -160,7 +161,7 @@ function showLastMonthOnce(){
   const last=previousMonth();
   const lines=categories.map(cat=>{
     const arr=ranking(cat,last),index=arr.findIndex(p=>p.uid===user.uid);
-    return `<div class="item"><div class="grow"><b>${safe(cat)}</b></div><b>${index<0?'ランク外':`${index+1}位`}</b></div>`;
+    return `<div class="item"><div class="grow"><b>${safe(categoryLabel(cat))}</b></div><b>${index<0?'ランク外':`${index+1}位`}</b></div>`;
   }).join('');
   $('lastMonthTitle').textContent=`${last.replace('-','年')}月の順位`;
   $('lastMonthContent').innerHTML=lines;
