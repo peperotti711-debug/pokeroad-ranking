@@ -52,8 +52,15 @@ async function createAccount(){
   profiles[cred.user.uid]={name,avatar:url,accountId:id};
   cardInfo={id,pass};
   $('cardPassword').textContent=pass;
-  try{const payload=JSON.stringify({type:'finish-ranking-login',id,pass});$('cardQr').src=await QRCode.toDataURL(payload,{width:240,margin:2});show('cardQr',true)}
-  catch(e){show('cardQr',false);notify('QRコードを作れませんでした。パスワードを安全に控えてください')}
+  try{
+    if(typeof QRCode!=='function')throw Error('QRコード作成ライブラリを読み込めませんでした。通信環境を確認して再読み込みしてください');
+    const target=$('qrGenerator');target.innerHTML='';
+    new QRCode(target,{text:JSON.stringify({type:'finish-ranking-login',id,pass}),width:300,height:300,correctLevel:QRCode.CorrectLevel.M});
+    const qrCanvas=target.querySelector('canvas'),qrImg=target.querySelector('img');
+    const dataUrl=qrCanvas?.toDataURL('image/png')||qrImg?.src;
+    if(!dataUrl?.startsWith('data:image/'))throw Error('QRコードの画像生成に失敗しました');
+    $('cardQr').src=dataUrl;show('cardQr',true);
+  }catch(e){show('cardQr',false);notify('ログインカードのQRコード生成に失敗：'+errorText(e))}
   show('auth',false);show('app',false);show('nav',false);show('cardSection',true);
   await saveCard();
  }catch(e){notify('作成に失敗しました：'+errorText(e));creatingAccount=false}
@@ -74,7 +81,7 @@ async function login(id,pass){
   go('home');
  }catch(e){notify('ログインできません：'+errorText(e))}
 }
-async function loginFromImage(file){try{const bitmap=await createImageBitmap(file),c=document.createElement('canvas');c.width=bitmap.width;c.height=bitmap.height;c.getContext('2d').drawImage(bitmap,0,0);bitmap.close();const data=c.getContext('2d').getImageData(0,0,c.width,c.height),code=jsQR(data.data,c.width,c.height);if(!code)throw Error('QRコードが見つかりません。画像全体が写っているか確認してください');const obj=JSON.parse(code.data);if(obj.type!=='finish-ranking-login'||!obj.id||!obj.pass)throw Error('このサイトのログインカードではありません');await login(obj.id,obj.pass)}catch(e){notify('画像ログインに失敗：'+errorText(e))}}
+async function loginFromImage(file){try{if(typeof jsQR!=='function')throw Error('QRコード読み取り機能を読み込めませんでした。再読み込みしてください');const bitmap=await createImageBitmap(file),c=document.createElement('canvas');c.width=bitmap.width;c.height=bitmap.height;c.getContext('2d').drawImage(bitmap,0,0);bitmap.close();const data=c.getContext('2d').getImageData(0,0,c.width,c.height),code=jsQR(data.data,c.width,c.height);if(!code)throw Error('QRコードが見つかりません。画像全体が写っているか確認してください');const obj=JSON.parse(code.data);if(obj.type!=='finish-ranking-login'||!obj.id||!obj.pass)throw Error('このサイトのログインカードではありません');await login(obj.id,obj.pass)}catch(e){notify('画像ログインに失敗：'+errorText(e))}}
 async function saveCard(){
   try{
     if(!cardInfo)throw Error('ログインカードの情報がありません');
@@ -87,7 +94,8 @@ async function saveCard(){
     ctx.font='20px system-ui,sans-serif';ctx.fillText('ログイン情報を含む大切なカードです',420,225);
     ctx.font='22px system-ui,sans-serif';ctx.fillText('パスワード',420,308);
     ctx.font='bold 28px monospace';ctx.fillText(cardInfo.pass,420,350);
-    if($('cardQr').src && !$('cardQr').classList.contains('hidden')){const qr=new Image();qr.src=$('cardQr').src;await qr.decode();ctx.drawImage(qr,220,390,400,400);}
+    if(!$('cardQr').src.startsWith('data:image/')||$('cardQr').classList.contains('hidden'))throw Error('QRコードがありません。ページを再読み込みしてからカードを作成してください');
+    {const qr=new Image();qr.src=$('cardQr').src;await qr.decode();ctx.imageSmoothingEnabled=false;ctx.drawImage(qr,220,390,400,400);ctx.imageSmoothingEnabled=true;}
     ctx.font='20px system-ui,sans-serif';ctx.fillText('QRコードからログインできます',420,845);
     ctx.fillStyle='#b42336';ctx.font='bold 21px system-ui,sans-serif';ctx.fillText('このカードを他人に共有しないでください',420,915);
     const url=canvas.toDataURL('image/png');
