@@ -175,64 +175,15 @@ async function verifyFinishImage(file){
   const w=bitmap.width,h=bitmap.height;
   if(w<250||h<400)throw Error('画像の解像度が低すぎます');
   // Detect PR60 near the top left, or メガレックウザ near the right side.
- 
-const regions = [
-  {x:0, y:0, w:0.65, h:0.35, lang:'eng', type:'pr'},
-  {x:0.25, y:0.08, w:0.75, h:0.75, lang:'jpn', type:'mega'}
-];
-
-function similar(a,b) {
-  const dp = Array.from({length:a.length+1},()=>[]);
-  for(let i=0;i<=a.length;i++) dp[i][0]=i;
-  for(let j=0;j<=b.length;j++) dp[0][j]=j;
-  for(let i=1;i<=a.length;i++){
-    for(let j=1;j<=b.length;j++){
-      dp[i][j]=Math.min(
-        dp[i-1][j]+1,
-        dp[i][j-1]+1,
-        dp[i-1][j-1]+(a[i-1]===b[j-1]?0:1)
-      );
-    }
+  const regions=[{x:0,y:0,w:Math.round(w*.47),h:Math.round(h*.25),lang:'eng',pattern:/PR\s*6[0O]/i},
+   {x:Math.round(w*.43),y:Math.round(h*.18),w:Math.round(w*.57),h:Math.round(h*.48),lang:'jpn',pattern:/メガ\s*レック\s*ウザ/}];
+  for(const r of regions){
+   const canvas=document.createElement('canvas');const scale=Math.min(2,1200/r.w);canvas.width=Math.round(r.w*scale);canvas.height=Math.round(r.h*scale);
+   const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(bitmap,r.x,r.y,r.w,r.h,0,0,canvas.width,canvas.height);
+   const result=await Tesseract.recognize(canvas,r.lang,{logger:()=>{}});
+   const text=(result.data?.text||'').replace(/[\s　]/g,'');
+   if(r.pattern.test(text))return true;
   }
-  return dp[a.length][b.length];
-}
-
-for(const r of regions){
-  const canvas=document.createElement('canvas');
-  const x=Math.round(w*r.x),y=Math.round(h*r.y);
-  const rw=Math.min(w-x,Math.round(w*r.w));
-  const rh=Math.min(h-y,Math.round(h*r.h));
-  const scale=Math.min(3,1800/rw);
-  canvas.width=Math.round(rw*scale);
-  canvas.height=Math.round(rh*scale);
-  const ctx=canvas.getContext('2d',{willReadFrequently:true});
-
-  for(const filter of ['none','grayscale(1) contrast(1.8)']){
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    ctx.filter=filter;
-    ctx.drawImage(bitmap,x,y,rw,rh,0,0,canvas.width,canvas.height);
-
-    const result=await Tesseract.recognize(canvas,r.lang,{logger:()=>{}});
-    const raw=(result.data?.text||'').toUpperCase();
-    const text=raw.replace(/[\s　・.,。、]/g,'');
-
-    if(r.type==='pr'){
-      const normalized=text.replace(/O/g,'0').replace(/[IL|]/g,'1');
-      if(/PR6[0-9]/.test(normalized)||normalized.includes('PR60')) return true;
-    }else{
-      const target='メガレックウザ';
-      for(let i=0;i<text.length;i++){
-        for(let n=target.length-1;n<=target.length+1;n++){
-          const part=text.slice(i,i+n);
-          if(part.length>=target.length-1&&similar(part,target)<=1){
-            return true;
-          }
-        }
-      }
-    }
-  }
-
-
   throw Error('画像から「PR60」または「メガレックウザ」を確認できませんでした。文字が鮮明な完走画像を選択してください');
  }finally{bitmap.close()}
 }
