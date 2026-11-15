@@ -1,17 +1,71 @@
+
 rules_version = '2';
 service cloud.firestore {
- match /databases/{database}/documents {
-  match /profiles/{uid} {
-   allow read: if request.auth != null;
-   allow create: if request.auth != null && request.auth.uid == uid && request.resource.data.keys().hasOnly(['name','avatar','accountId','createdAt']) && request.resource.data.name is string && request.resource.data.name.size() <= 30 && request.resource.data.accountId is string;
-   allow update: if request.auth != null && request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','avatar']) && request.resource.data.name is string && request.resource.data.name.size() <= 30;
-   allow delete: if false;
+  match /databases/{database}/documents {
+
+    match /profiles/{uid} {
+      allow read: if request.auth != null;
+
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'name', 'avatar', 'accountId', 'createdAt', 'snsLinks'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 30
+        && request.resource.data.get('accountId', '') is string
+        && validSnsLinks(request.resource.data);
+
+      allow update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly([
+            'name', 'avatar', 'snsLinks'
+          ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 30
+        && validSnsLinks(request.resource.data);
+
+      allow delete: if false;
+    }
+
+    function validSnsLinks(data) {
+      let links = data.get('snsLinks', []);
+      return links is list
+        && links.size() <= 3
+        && links.size() >= 0
+        && (links.size() < 1 ||
+          (links[0] is string && links[0].size() <= 500))
+        && (links.size() < 2 ||
+          (links[1] is string && links[1].size() <= 500))
+        && (links.size() < 3 ||
+          (links[2] is string && links[2].size() <= 500));
+    }
+
+    match /posts/{postId} {
+      allow read: if request.auth != null;
+
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly([
+          'uid', 'image', 'moves', 'category', 'createdAt'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.moves is int
+        && request.resource.data.moves >= 0
+        && request.resource.data.moves <= 9999
+        && request.resource.data.category in [
+          '混合編成', 'リレーラッシュ編成', 'その他'
+        ]
+        && request.resource.data.image is string
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if false;
+
+      allow delete: if request.auth != null
+        && (
+          resource.data.uid == request.auth.uid
+          || request.auth.token.admin == true
+        );
+    }
   }
-  match /posts/{postId} {
-   allow read: if request.auth != null;
-   allow create: if request.auth != null && request.resource.data.keys().hasOnly(['uid','image','moves','category','createdAt']) && request.resource.data.uid == request.auth.uid && request.resource.data.moves is int && request.resource.data.moves >= 0 && request.resource.data.moves <= 9999 && request.resource.data.category in ['混合編成','リレーラッシュ編成','その他'] && request.resource.data.image is string && request.resource.data.createdAt == request.time;
-   allow update: if false;
-   allow delete: if request.auth != null && request.auth.token.admin == true;
-  }
- }
 }
