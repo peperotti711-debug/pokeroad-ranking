@@ -1,6 +1,6 @@
 import {firebaseConfig} from './firebase-config.js';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js';
-import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,setPersistence,browserLocalPersistence,browserSessionPersistence,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js';
+import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,setPersistence,browserLocalPersistence,browserSessionPersistence,onAuthStateChanged,signOut,EmailAuthProvider,reauthenticateWithCredential} from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js';
 import {getFirestore,doc,setDoc,getDoc,collection,addDoc,getDocs,deleteDoc,serverTimestamp} from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
 import {cloudinaryConfig} from './cloudinary-config.js';
 const $=id=>document.getElementById(id), show=(id,on=true)=>$(id).classList.toggle('hidden',!on);
@@ -103,7 +103,6 @@ async function saveCard(){
     const img=document.createElement('img');img.src=url;img.alt='ログインカード（スマホでは長押しで保存）';
     img.style.cssText='display:block;width:100%;max-width:340px;margin:14px auto;border-radius:12px';
     wrap.append(img);$('cardSection').querySelector('.saved-preview')?.remove();$('cardSection').append(wrap);
-    const a=document.createElement('a');a.href=url;a.download='ポケロードランキング_ログインカード.png';document.body.append(a);a.click();a.remove();
     notify('ログインカード画像を長押しして保存してください');
   }catch(e){notify('画像生成に失敗：'+errorText(e))}
 }
@@ -140,8 +139,11 @@ async function verifyDeletionCard(){
  let info;try{info=JSON.parse(code.data)}catch{throw Error('正しいログインカードではありません')}
  if(info.type!=='finish-ranking-login'||!info.id||!info.pass)throw Error('正しいログインカードではありません');
  const currentUid=user.uid;
- const credential=await signInWithEmailAndPassword(auth,idEmail(info.id),info.pass);
- if(credential.user.uid!==currentUid)throw Error('この投稿のアカウントのログインカードではありません');
+ const currentAccountId=profiles[currentUid]?.accountId||rememberedId();
+ if(info.id!==currentAccountId)throw Error('この投稿のアカウントのログインカードではありません');
+ const credential=EmailAuthProvider.credential(idEmail(info.id),info.pass);
+ await reauthenticateWithCredential(user,credential);
+ if(auth.currentUser?.uid!==currentUid)throw Error('ログイン中のアカウントが変更されました。もう一度ログインしてください');
 }
 async function deletePost(id){if(!user)return;const p=posts.find(x=>x.id===id);if(!p||(!isAdmin&&p.uid!==user.uid))return;if(!confirm(`この投稿を削除しますか？\n${profiles[p.uid]?.name||'ユーザー'} / ${p.category} / 残り${p.moves}手\n削除すると元に戻せません。`))return;try{if(!isAdmin)await verifyDeletionCard();await deleteDoc(doc(db,'posts',id));/* Cloudinary上の画像削除にはサーバー側の認証処理が必要です。Firestoreの投稿のみ削除します。 */await load();notify('投稿を削除しました')}catch(err){notify('削除に失敗：'+errorText(err))}}
 function render(){if(!user)return;if(page==='ranking')renderRanking();if(page==='admin')renderAdmin();if(page==='profile')renderProfile();if(page==='settings'){const profile=profiles[user.uid]||{};$('editName').value=profile.name||'';for(let i=0;i<3;i++)$('social'+(i+1)).value=(profile.socialLinks||[])[i]||''}}
