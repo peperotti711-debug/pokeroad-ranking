@@ -167,26 +167,84 @@ function showLastMonthOnce(){
   $('lastMonthDialog').showModal();
 }
 async function verifyFinishImage(file){
- if(!file || !file.type.startsWith('image/'))throw Error('画像を選択してください');
- if(file.size>12*1024*1024)throw Error('画像は12MB以下にしてください');
- if(typeof Tesseract==='undefined')throw Error('文字認識ライブラリを読み込めません。通信環境を確認して再読み込みしてください');
- const bitmap=await createImageBitmap(file);
- try{
-  const w=bitmap.width,h=bitmap.height;
-  if(w<250||h<400)throw Error('画像の解像度が低すぎます');
-  // Detect PR60 near the top left, or メガレックウザ near the right side.
-  const regions=[{x:0,y:0,w:Math.round(w*.47),h:Math.round(h*.25),lang:'eng',pattern:/PR\s*6[0O]/i},
-   {x:Math.round(w*.43),y:Math.round(h*.18),w:Math.round(w*.57),h:Math.round(h*.48),lang:'jpn',pattern:/メガ\s*レック\s*ウザ/}];
-  for(const r of regions){
-   const canvas=document.createElement('canvas');const scale=Math.min(2,1200/r.w);canvas.width=Math.round(r.w*scale);canvas.height=Math.round(r.h*scale);
-   const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(bitmap,r.x,r.y,r.w,r.h,0,0,canvas.width,canvas.height);
-   const result=await Tesseract.recognize(canvas,r.lang,{logger:()=>{}});
-   const text=(result.data?.text||'').replace(/[\s　]/g,'');
-   if(r.pattern.test(text))return true;
+  if(!file || !file.type.startsWith('image/'))throw Error('画像を選択してください');
+  if(file.size>12*1024*1024)throw Error('画像は12MB以下にしてください');
+  if(typeof Tesseract==='undefined')throw Error('文字認識ライブラリを読み込めません。通信環境を確認して再読み込みしてください');
+
+  // A small edit-distance allowance helps with OCR errors, but avoids matching unrelated words.
+  function editDistance(a,b){
+    const prev=Array.from({length:b.length+1},(_,i)=>i);
+    for(let i=1;i<=a.length;i++){
+      let diagonal=prev[0];prev[0]=i;
+      for(let j=1;j<=b.length;j++){
+        const old=prev[j];
+        prev[j]=Math.min(prev[j]+1,prev[j-1]+1,diagonal+(a[i-1]===b[j-1]?0:1));
+        diagonal=old;
+      }
+    }
+    return prev[b.length];
   }
-  throw Error('画像から「PR60」または「メガレックウザ」を確認できませんでした。文字が鮮明な完走画像を選択してください');
- }finally{bitmap.close()}
+  function recognized(text,type){
+    const compact=String(text||'').normalize('NFKC').replace(/[\s　・.,，。:：\-ー_]/g,'').toUpperCase();
+    if(type==='pr'){
+      // PR60 / PR6O / PR６０ and one-character OCR mistakes.
+      const latin=compact.replace(/[^A-Z0-9]/g,'');
+      for(let i=0;i+4<=latin.length;i++){
+        const token=latin.slice(i,i+4).replace(/O/g,'0').replace(/I/g,'1');
+        if(editDistance(token,'PR60')<=1 && token.slice(0,2)!=='00')return true;
+      }
+      return false;
+    }
+    const japanese=compact.replace(/[^\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu,'');
+    const target='メガレックウザ';
+    if(japanese.includes(target))return true;
+    // Require a near-complete word: allow at most one substitution/omission.
+    for(const size of [target.length-1,target.length,target.length+1]){
+      for(let i=0;i+size<=japanese.length;i++){
+        if(editDistance(japanese.slice(i,i+size),target)<=1)return true;
+      }
+    }
+    return false;
+  }
+
+  const bitmap=await createImageBitmap(file);
+  try{
+    const w=bitmap.width,h=bitmap.height;
+    if(w<250||h<400)throw Error('画像の解像度が低すぎます');
+    // Relative coordinates work with different phone and tablet resolutions.
+    const regions=[
+      {x:0,y:0,w:.65,h:.32,lang:'eng',type:'pr'},
+      {x:.30,y:.10,w:.70,h:.68,lang:'jpn',type:'mega'}
+    ];
+    for(const r of regions){
+      const x=Math.round(w*r.x),y=Math.round(h*r.y);
+      const rw=Math.min(w-x,Math.round(w*r.w)),rh=Math.min(h-y,Math.round(h*r.h));
+      const scale=Math.min(2.5,1600/rw,1600/rh);
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.max(1,Math.round(rw*scale));
+      canvas.height=Math.max(1,Math.round(rh*scale));
+      const ctx=canvas.getContext('2d',{willReadFrequently:true});
+      if(!ctx)throw Error('画像を処理できませんでした');
+      ctx.drawImage(bitmap,x,y,rw,rh,0,0,canvas.width,canvas.height);
+      const original=ctx.getImageData(0,0,canvas.width,canvas.height);
+      for(const mode of ['normal','contrast']){
+        if(mode==='contrast'){
+          const pixels=new Uint8ClampedArray(original.data);
+          for(let i=0;i<pixels.length;i+=4){
+            const gray=.299*pixels[i]+.587*pixels[i+1]+.114*pixels[i+2];
+            const adjusted=Math.max(0,Math.min(255,(gray-128)*1.7+128));
+            pixels[i]=pixels[i+1]=pixels[i+2]=adjusted;
+          }
+          ctx.putImageData(new ImageData(pixels,canvas.width,canvas.height),0,0);
+        }
+        const result=await Tesseract.recognize(canvas,r.lang,{logger:()=>{}});
+        if(recognized(result.data?.text,r.type))return true;
+      }
+    }
+    throw Error('画像から「PR60」または「メガレックウザ」を確認できませんでした。文字が見える完走画像を選択してください');
+  }finally{bitmap.close()}
 }
+
 async function submitPost(){const b=$('submitPost'),file=$('postImage').files[0],num=Number($('moves').value),cat=$('category').value;if(!file)return notify('完走した瞬間の画像を選んでください');if($('moves').value.trim()===''||!Number.isInteger(num)||num<0||num>9999)return notify('残り手数を0〜9999の整数で入力してください');if(!categories.includes(cat))return;busy(b,true);notify('投稿画像の文字を確認しています…');try{await verifyFinishImage(file);const image=await uploadImage(file,`posts/${user.uid}/${crypto.randomUUID()}.jpg`);await addDoc(collection(db,'posts'),{uid:user.uid,image,moves:num,category:cat,createdAt:serverTimestamp()});$('postImage').value='';$('moves').value='';show('postPreview',false);await load();notify('投稿しました！');go('ranking')}catch(e){notify('投稿に失敗：'+errorText(e))}finally{busy(b,false)}}
 async function saveProfile(){const b=$('saveProfile'),name=$('editName').value.trim(),file=$('editAvatar').files[0];if(!name)return notify('名前を入力してください');const links=[];for(let i=1;i<=3;i++){const raw=$('social'+i).value.trim();if(!raw)continue;try{const url=new URL(raw);if(url.protocol!=='https:'||!url.hostname.includes('.'))throw Error();if(raw.length>500)throw Error();links.push(url.href)}catch{return notify('SNSリンク '+i+' は https:// から始まる正しいURLを入力してください')}}busy(b,true);try{const old=profiles[user.uid]||{};let avatarUrl=old.avatar||'';if(file)avatarUrl=await uploadImage(file,`avatars/${user.uid}/${Date.now()}.jpg`);await setDoc(doc(db,'profiles',user.uid),{name,avatar:avatarUrl,snsLinks:links},{merge:true});await load();notify('設定を保存しました')}catch(e){notify('保存に失敗：'+errorText(e))}finally{busy(b,false)}}
 function wire(){ $('toCreate').onclick=()=>{show('createView');show('loginView',false);$('toCreate').classList.add('active');$('toLogin').classList.remove('active')};$('toLogin').onclick=()=>{show('createView',false);show('loginView');$('toLogin').classList.add('active');$('toCreate').classList.remove('active')};$('createBtn').onclick=createAccount;$('loginBtn').onclick=()=>login('', $('loginPassword').value);$('loginImage').onchange=e=>{if(e.target.files[0])loginFromImage(e.target.files[0])};$('finishCard').onclick=async()=>{cardInfo=null;creatingAccount=false;$('cardPassword').textContent='';show('cardSection',false);show('app');show('nav');try{await load();profileUid=user.uid;go('home')}catch(e){notify('プロフィール読み込みに失敗：'+errorText(e))}};$('logout').onclick=()=>signOut(auth);$('submitPost').onclick=submitPost;$('saveProfile').onclick=saveProfile;$('postImage').onchange=e=>{const f=e.target.files[0];if(!f){show('postPreview',false);return} $('postPreview').src=URL.createObjectURL(f);show('postPreview')};$('rankCategory').onchange=renderRanking;document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{period=b.dataset.period;document.querySelectorAll('[data-period]').forEach(x=>x.classList.toggle('active',x===b));renderRanking()});document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{if(b.dataset.page==='profile')profileUid=user.uid;go(b.dataset.page)});document.body.addEventListener('click',e=>{const person=e.target.closest('.person');if(person){profileUid=person.dataset.uid;go('profile')}const del=e.target.closest('.deletepost');if(del)deletePost(del.dataset.id);const photo=e.target.closest('.viewphoto');if(photo){$('largePhoto').src=photo.dataset.url;$('photoDialog').showModal()}});$('closePhoto').onclick=()=>$('photoDialog').close();$('closeLastMonth').onclick=()=>$('lastMonthDialog').close()}
