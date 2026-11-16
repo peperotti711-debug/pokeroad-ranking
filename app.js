@@ -4,7 +4,7 @@ import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,setPer
 import {getFirestore,doc,setDoc,getDoc,collection,addDoc,getDocs,deleteDoc,serverTimestamp} from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
 import {cloudinaryConfig} from './cloudinary-config.js';
 const $=id=>document.getElementById(id), show=(id,on=true)=>$(id).classList.toggle('hidden',!on);
-let auth,db,user=null,posts=[],profiles={},period='all',page='home',profileUid=null,cardInfo=null,creatingAccount=false,isAdmin=false;
+let auth,db,user=null,posts=[],profiles={},period='all',page='home',profileUid=null,cardInfo=null,creatingAccount=false,isAdmin=false,profileSort='new';
 const categories=['混合編成','リレーラッシュ編成','その他'];
 const categoryLabel=cat=>cat==='混合編成'?'コンボ編成':cat;
 const notify=(s)=>{const e=$('notice');e.textContent=s;show('notice');setTimeout(()=>show('notice',false),4500)};
@@ -114,9 +114,23 @@ function ranking(cat,month=null,bestOnly=false){
  if(!bestOnly)return filtered.slice(0,100);
  const seen=new Set();return filtered.filter(p=>{if(seen.has(p.uid))return false;seen.add(p.uid);return true}).slice(0,100);
 }
+// All-time rating: 80–100 points per post, best 100 posts only.
+function ratingFor(uid){
+ const mine=posts.filter(p=>p.uid===uid).sort((a,b)=>b.moves-a.moves).slice(0,100);
+ return Math.round(mine.reduce((sum,p)=>sum+80+0.4*Math.min(50,Math.max(0,p.moves)),0)*10)/10;
+}
+function renderRateRanking(){
+ const ids=[...new Set(posts.map(p=>p.uid))];
+ const rows=ids.map(uid=>({uid,rate:ratingFor(uid),count:posts.filter(p=>p.uid===uid).length}))
+   .sort((a,b)=>b.rate-a.rate||b.count-a.count||a.uid.localeCompare(b.uid)).slice(0,100);
+ $('rankingList').innerHTML=rows.length?`<p class="muted">全期間・全編成の残り手数上位100投稿で計算。1投稿80〜100、最大10,000レート。</p>`+rows.map((r,i)=>{
+   const owner=profiles[r.uid]||{};
+   return `<div class="item"><div class="rank ${rankClass(i+1)}">${i+1}位</div><button class="secondary mini person" data-uid="${safe(r.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div class="muted">${r.count} 投稿</div></div><b>${r.rate.toLocaleString('ja-JP')} <span class="small">レート</span></b></div>`;
+ }).join(''):'まだ投稿がありません。';
+}
 function rankClass(rank){return rank===1?'rank-gold':rank===2?'rank-silver':rank===3?'rank-bronze':'rank-regular'}
 function postHtml(p,rank=null){const owner=profiles[p.uid]||{};const canDelete=user&&(isAdmin||p.uid===user.uid);return `<div class="item">${rank!==null?`<div class="rank ${rankClass(rank)}">${rank}位</div>`:''}<button class="secondary mini person" data-uid="${safe(p.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div><span class="pill">残り ${p.moves} 手</span> <span class="small">${safe(categoryLabel(p.category))}</span></div><div class="muted">${dateStr(dateOf(p))}</div></div><button class="secondary mini viewphoto" data-url="${safe(imageUrl(p.image))}">画像を見る</button>${canDelete?`<button class="danger mini deletepost" data-id="${safe(p.id)}">削除</button>`:''}</div>`}
-function renderRanking(){const month=period==='month'?monthKey(new Date()):null;const bestOnly=period==='best';show('rankCategoryWrap',!bestOnly);const arr=ranking(bestOnly?null:$('rankCategory').value,month,bestOnly);$('rankingList').innerHTML=arr.length?arr.map((p,i)=>postHtml(p,i+1)).join(''):'まだ投稿がありません。'}
+function renderRanking(){if(period==='rate'){show('rankCategoryWrap',false);renderRateRanking();return;}const month=period==='month'?monthKey(new Date()):null;const bestOnly=period==='best';show('rankCategoryWrap',!bestOnly);const arr=ranking(bestOnly?null:$('rankCategory').value,month,bestOnly);$('rankingList').innerHTML=arr.length?arr.map((p,i)=>postHtml(p,i+1)).join(''):'まだ投稿がありません。'}
 
 
 function socialLinks(owner){const links=Array.isArray(owner.snsLinks)?owner.snsLinks:[];return links.filter(u=>typeof u==='string'&&/^https:\/\//i.test(u)).slice(0,3).map(u=>{try{const url=new URL(u);const display=(url.hostname.replace(/^www\./,'')+url.pathname.replace(/\/$/,'')).slice(0,48);return `<a href="${safe(url.href)}" target="_blank" rel="noopener noreferrer" class="social-link">${safe(display)} ↗</a>`;}catch{return '';}}).join('');}
@@ -125,7 +139,7 @@ function socialLinks(owner){const links=Array.isArray(owner.snsLinks)?owner.snsL
 function renderProfile(){const uid=profileUid||user.uid,owner=profiles[uid]||{},mine=posts.filter(p=>p.uid===uid),best=sorted(mine)[0];const currentMonth=monthKey(new Date());
  const months=[...new Set(posts.map(p=>monthKey(dateOf(p))))].filter(m=>m<currentMonth).sort().reverse();
  const history=months.map(month=>`<div class="monthly-group"><b>${safe(month)}</b>${categories.map(cat=>{const pos=ranking(cat,month,true).findIndex(p=>p.uid===uid);return `<div class="monthly-row"><span>${safe(categoryLabel(cat))}</span><b>${pos<0?'／':`${pos+1}位`}</b></div>`}).join('')}</div>`);
- $('profileContent').innerHTML=`<div class="flex">${avatar(owner,true)}<div><h2>${safe(owner.name||'ユーザー')}</h2><div class="muted">${uid===user.uid?'自分のプロフィール':'ユーザープロフィール'}</div></div></div>${socialLinks(owner)?`<div class="social-links">${socialLinks(owner)}</div>`:''}<hr><div>投稿数（完走回数）</div><div class="stat">${mine.length} 回</div><h3>自己ベスト（最高残り手数）</h3>${best?postHtml(best):'<p class="muted">まだ記録がありません</p>'}<h3>月毎のランキング順位</h3>${history.join('')||'<p class="muted">ランキング履歴がありません</p>'}<h3>投稿履歴</h3>${sorted(mine).map(p=>postHtml(p)).join('')||'<p class="muted">まだ投稿がありません</p>'}`}
+ $('profileContent').innerHTML=`<div class="flex">${avatar(owner,true)}<div><h2>${safe(owner.name||'ユーザー')}</h2><div class="muted">${uid===user.uid?'自分のプロフィール':'ユーザープロフィール'}</div></div></div>${socialLinks(owner)?`<div class="social-links">${socialLinks(owner)}</div>`:''}<hr><div>投稿数（完走回数）</div><div class="stat">${mine.length} 回</div><div class="muted">全期間レート</div><div class="stat">${ratingFor(uid).toLocaleString('ja-JP')}</div><h3>自己ベスト（最高残り手数）</h3>${best?postHtml(best):'<p class="muted">まだ記録がありません</p>'}<h3>月毎のランキング順位</h3>${history.join('')||'<p class="muted">ランキング履歴がありません</p>'}<h3>投稿履歴</h3><label for="profileSort">並び順</label><select id="profileSort" class="profile-sort"><option value="new" ${profileSort==='new'?'selected':''}>新しい順</option><option value="moves" ${profileSort==='moves'?'selected':''}>残り手数の多い順</option></select><div id="profilePosts">${(profileSort==='new'?[...mine].sort((a,b)=>dateOf(b)-dateOf(a)):sorted(mine)).map(p=>postHtml(p)).join('')||'<p class="muted">まだ投稿がありません</p>'}</div>`}`}
 function renderAdmin(){if(!isAdmin)return;const all=[...posts].sort((a,b)=>dateOf(b)-dateOf(a));$('adminList').innerHTML=all.length?all.map(p=>postHtml(p)).join(''):'投稿はありません';}
 async function verifyDeletionCard(){
  const input=$('deleteCardImage');input.value='';
@@ -152,21 +166,44 @@ async function verifyDeletionCard(){
 }
 async function deletePost(id){if(!user)return;const p=posts.find(x=>x.id===id);if(!p||(!isAdmin&&p.uid!==user.uid))return;if(!confirm(`この投稿を削除しますか？\n${profiles[p.uid]?.name||'ユーザー'} / ${categoryLabel(p.category)} / 残り${p.moves}手\n削除すると元に戻せません。`))return;try{if(!isAdmin)await verifyDeletionCard();await deleteDoc(doc(db,'posts',id));/* Cloudinary上の画像削除にはサーバー側の認証処理が必要です。Firestoreの投稿のみ削除します。 */await load();notify('投稿を削除しました')}catch(err){notify('削除に失敗：'+errorText(err))}}
 function render(){if(!user)return;if(page==='ranking')renderRanking();if(page==='admin')renderAdmin();if(page==='profile')renderProfile();if(page==='settings'){const profile=profiles[user.uid]||{};$('editName').value=profile.name||'';for(let i=0;i<3;i++)$('social'+(i+1)).value=(profile.snsLinks||[])[i]||''}}
-function go(next){page=next;for(const n of ['home','ranking','profile','settings','admin'])show(n+'Page',n===next);document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===next));render();scrollTo(0,0)}
+function go(next){page=next;show('siteHeader',next==='home');for(const n of ['home','ranking','profile','settings','admin'])show(n+'Page',n===next);document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===next));render();scrollTo(0,0)}
 function previousMonth(){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-1);return monthKey(d)}
-function showLastMonthOnce(){
-  const current=monthKey(new Date()),key=`finish-ranking-last-month-${user.uid}`;
-  if(localStorage.getItem(key)===current)return;
-  localStorage.setItem(key,current);
-  const last=previousMonth();
-  const lines=categories.map(cat=>{
-    const arr=ranking(cat,last),index=arr.findIndex(p=>p.uid===user.uid);
-    return `<div class="item"><div class="grow"><b>${safe(categoryLabel(cat))}</b></div><b>${index<0?'ランク外':`${index+1}位`}</b></div>`;
-  }).join('');
-  $('lastMonthTitle').textContent=`${last.replace('-','年')}月の順位`;
-  $('lastMonthContent').innerHTML=lines;
-  $('lastMonthDialog').showModal();
+async function buildLastMonthImage(last,results){
+ const c=document.createElement('canvas');c.width=900;c.height=1050;
+ const ctx=c.getContext('2d');ctx.fillStyle='#101827';ctx.fillRect(0,0,900,1050);
+ ctx.fillStyle='#1b2941';ctx.beginPath();ctx.roundRect(45,45,810,960,28);ctx.fill();
+ ctx.textAlign='center';ctx.fillStyle='#eaf1ff';ctx.font='bold 46px system-ui,sans-serif';ctx.fillText('🏆 ポケロードランキング',450,145);
+ ctx.font='bold 42px system-ui,sans-serif';ctx.fillText(`${last.replace('-','年')}月の最終順位`,450,235);
+ ctx.fillStyle='#acbad1';ctx.font='26px system-ui,sans-serif';ctx.fillText('先月の各編成の最高順位',450,292);
+ ctx.fillStyle='#fff';ctx.font='bold 32px system-ui,sans-serif';
+ const name=profiles[user.uid]?.name||'ユーザー';
+ const shortName=[...name].slice(0,18).join('');ctx.fillText(shortName,450,375);
+ results.forEach((r,i)=>{
+   const y=485+i*145;
+   ctx.fillStyle='#30425e';ctx.fillRect(90,y+45,720,2);
+   ctx.textAlign='left';ctx.fillStyle='#eaf1ff';ctx.font='bold 31px system-ui,sans-serif';ctx.fillText(categoryLabel(r.cat),100,y);
+   ctx.textAlign='right';ctx.fillStyle=r.rank===null?'#acbad1':'#ffd970';ctx.font='bold 37px system-ui,sans-serif';ctx.fillText(r.rank===null?'ランク外':`${r.rank}位`,790,y);
+ });
+ ctx.textAlign='center';ctx.fillStyle='#acbad1';ctx.font='24px system-ui,sans-serif';ctx.fillText('ポケロードランキング',450,945);
+ return c.toDataURL('image/png');
 }
+async function showLastMonthOnce(){
+ const current=monthKey(new Date()),key=`finish-ranking-last-month-${user.uid}`;
+ if(localStorage.getItem(key)===current)return;
+ const last=previousMonth();
+ const results=categories.map(cat=>{
+   const arr=ranking(cat,last),index=arr.findIndex(p=>p.uid===user.uid);
+   return {cat,rank:index<0?null:index+1};
+ });
+ $('lastMonthTitle').textContent=`${last.replace('-','年')}月の順位`;
+ $('lastMonthContent').innerHTML=results.map(r=>`<div class="item"><div class="grow"><b>${safe(categoryLabel(r.cat))}</b></div><b>${r.rank===null?'ランク外':`${r.rank}位`}</b></div>`).join('');
+ try{
+   $('lastMonthImage').src=await buildLastMonthImage(last,results);
+   $('lastMonthDialog').showModal();
+   localStorage.setItem(key,current);
+ }catch(e){console.warn('順位画像生成に失敗',e);notify('先月の順位画像を作成できませんでした');}
+}
+
 async function verifyFinishImage(file){
   if(!file || !file.type.startsWith('image/'))throw Error('画像を選択してください');
   if(file.size>12*1024*1024)throw Error('画像は12MB以下にしてください');
@@ -257,8 +294,8 @@ async function verifyFinishImage(file){
 
 async function submitPost(){const b=$('submitPost'),file=$('postImage').files[0],num=Number($('moves').value),cat=$('category').value;if(!file)return notify('完走した瞬間の画像を選んでください');if($('moves').value.trim()===''||!Number.isInteger(num)||num<0||num>9999)return notify('残り手数を0〜9999の整数で入力してください');if(!categories.includes(cat))return;busy(b,true);notify('投稿画像の文字を確認しています…');try{await verifyFinishImage(file);const image=await uploadImage(file,`posts/${user.uid}/${crypto.randomUUID()}.jpg`);await addDoc(collection(db,'posts'),{uid:user.uid,image,moves:num,category:cat,createdAt:serverTimestamp()});$('postImage').value='';$('moves').value='';show('postPreview',false);await load();notify('投稿しました！');go('ranking')}catch(e){notify('投稿に失敗：'+errorText(e))}finally{busy(b,false)}}
 async function saveProfile(){const b=$('saveProfile'),name=$('editName').value.trim(),file=$('editAvatar').files[0];if(!name)return notify('名前を入力してください');const links=[];for(let i=1;i<=3;i++){const raw=$('social'+i).value.trim();if(!raw)continue;try{const url=new URL(raw);if(url.protocol!=='https:'||!url.hostname.includes('.'))throw Error();if(raw.length>500)throw Error();links.push(url.href)}catch{return notify('SNSリンク '+i+' は https:// から始まる正しいURLを入力してください')}}busy(b,true);try{const old=profiles[user.uid]||{};let avatarUrl=old.avatar||'';if(file)avatarUrl=await uploadImage(file,`avatars/${user.uid}/${Date.now()}.jpg`);await setDoc(doc(db,'profiles',user.uid),{name,avatar:avatarUrl,snsLinks:links},{merge:true});await load();notify('設定を保存しました')}catch(e){notify('保存に失敗：'+errorText(e))}finally{busy(b,false)}}
-function wire(){ $('toCreate').onclick=()=>{show('createView');show('loginView',false);$('toCreate').classList.add('active');$('toLogin').classList.remove('active')};$('toLogin').onclick=()=>{show('createView',false);show('loginView');$('toLogin').classList.add('active');$('toCreate').classList.remove('active')};$('createBtn').onclick=createAccount;$('loginBtn').onclick=()=>login('', $('loginPassword').value);$('loginImage').onchange=e=>{if(e.target.files[0])loginFromImage(e.target.files[0])};$('finishCard').onclick=async()=>{cardInfo=null;creatingAccount=false;$('cardPassword').textContent='';show('cardSection',false);show('app');show('nav');try{await load();profileUid=user.uid;go('home')}catch(e){notify('プロフィール読み込みに失敗：'+errorText(e))}};$('logout').onclick=()=>signOut(auth);$('submitPost').onclick=submitPost;$('saveProfile').onclick=saveProfile;$('postImage').onchange=e=>{const f=e.target.files[0];if(!f){show('postPreview',false);return} $('postPreview').src=URL.createObjectURL(f);show('postPreview')};$('rankCategory').onchange=renderRanking;document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{period=b.dataset.period;document.querySelectorAll('[data-period]').forEach(x=>x.classList.toggle('active',x===b));renderRanking()});document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{if(b.dataset.page==='profile')profileUid=user.uid;go(b.dataset.page)});document.body.addEventListener('click',e=>{const person=e.target.closest('.person');if(person){profileUid=person.dataset.uid;go('profile')}const del=e.target.closest('.deletepost');if(del)deletePost(del.dataset.id);const photo=e.target.closest('.viewphoto');if(photo){$('largePhoto').src=photo.dataset.url;$('photoDialog').showModal()}});$('closePhoto').onclick=()=>$('photoDialog').close();$('closeLastMonth').onclick=()=>$('lastMonthDialog').close()}
-wire();refreshLoginId();if(firebaseConfig.apiKey==='YOUR_API_KEY'){show('setup')}else{try{const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);onAuthStateChanged(auth,async u=>{user=u;isAdmin=false;show('adminTab',false);show('adminBadge',false);show('logout',!!u);if(!u){show('auth');show('app',false);show('nav',false);show('cardSection',false);return}if(cardInfo||creatingAccount)return;try{const token=await u.getIdTokenResult(true);isAdmin=token.claims.admin===true}catch(err){console.warn(err)}show('adminTab',isAdmin);show('adminBadge',isAdmin);show('auth',false);show('app');show('nav');try{await load();go(page);showLastMonthOnce()}catch(e){notify('データ読み込みに失敗：'+errorText(e))}})}catch(e){show('setup');notify(errorText(e))}}
+function wire(){ $('toCreate').onclick=()=>{show('createView');show('loginView',false);$('toCreate').classList.add('active');$('toLogin').classList.remove('active')};$('toLogin').onclick=()=>{show('createView',false);show('loginView');$('toLogin').classList.add('active');$('toCreate').classList.remove('active')};$('createBtn').onclick=createAccount;$('loginBtn').onclick=()=>login('', $('loginPassword').value);$('loginImage').onchange=e=>{if(e.target.files[0])loginFromImage(e.target.files[0])};$('finishCard').onclick=async()=>{cardInfo=null;creatingAccount=false;$('cardPassword').textContent='';show('cardSection',false);show('app');show('nav');try{await load();profileUid=user.uid;go('home')}catch(e){notify('プロフィール読み込みに失敗：'+errorText(e))}};$('logout').onclick=()=>signOut(auth);$('submitPost').onclick=submitPost;$('saveProfile').onclick=saveProfile;$('postImage').onchange=e=>{const f=e.target.files[0];if(!f){show('postPreview',false);return} $('postPreview').src=URL.createObjectURL(f);show('postPreview')};$('rankCategory').onchange=renderRanking;document.body.addEventListener('change',e=>{if(e.target.id==='profileSort'){profileSort=e.target.value;renderProfile()}});document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{period=b.dataset.period;document.querySelectorAll('[data-period]').forEach(x=>x.classList.toggle('active',x===b));renderRanking()});document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{if(b.dataset.page==='profile')profileUid=user.uid;go(b.dataset.page)});document.body.addEventListener('click',e=>{const person=e.target.closest('.person');if(person){profileUid=person.dataset.uid;go('profile')}const del=e.target.closest('.deletepost');if(del)deletePost(del.dataset.id);const photo=e.target.closest('.viewphoto');if(photo){$('largePhoto').src=photo.dataset.url;$('photoDialog').showModal()}});$('closePhoto').onclick=()=>$('photoDialog').close();$('closeLastMonth').onclick=()=>$('lastMonthDialog').close()}
+wire();refreshLoginId();if(firebaseConfig.apiKey==='YOUR_API_KEY'){show('setup')}else{try{const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);onAuthStateChanged(auth,async u=>{user=u;isAdmin=false;show('adminTab',false);show('adminBadge',false);show('logout',!!u);if(!u){show('siteHeader',false);show('auth');show('app',false);show('nav',false);show('cardSection',false);return}if(cardInfo||creatingAccount)return;try{const token=await u.getIdTokenResult(true);isAdmin=token.claims.admin===true}catch(err){console.warn(err)}show('adminTab',isAdmin);show('adminBadge',isAdmin);show('auth',false);show('app');show('nav');try{await load();go(page);await showLastMonthOnce()}catch(e){notify('データ読み込みに失敗：'+errorText(e))}})}catch(e){show('setup');notify(errorText(e))}}
 
 
 async function refreshRanking() {
