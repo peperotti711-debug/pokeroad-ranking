@@ -13,7 +13,14 @@ const dateStr=d=>new Intl.DateTimeFormat('ja-JP',{year:'numeric',month:'2-digit'
 const dateOf=p=>p.createdAt?.toDate?.()||new Date(0);
 const monthKey=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 const imageUrl=u=>u&&/^https:\/\//.test(u)?u:'';
-const avatar=(p,big=false)=>`<img class="avatar ${big?'big':''}" src="${safe(imageUrl(p?.avatar)||'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 80 80%22%3E%3Crect width=%2280%22 height=%2280%22 fill=%22%234a6590%22/%3E%3Ctext x=%2240%22 y=%2255%22 font-size=%2245%22 text-anchor=%22middle%22%3E👤%3C/text%3E%3C/svg%3E')}" alt="アイコン">`;
+// Avatar borders are based on the owner's completions in the current calendar month.
+const monthlyFinishCount=uid=>uid?posts.filter(p=>p.uid===uid&&monthKey(dateOf(p))===monthKey(new Date())).length:0;
+const avatar=(p,uid,big=false)=>{
+ const count=monthlyFinishCount(uid);
+ const tier=count>=30?'tier-30':count>=20?'tier-20':count>=10?'tier-10':'';
+ const src=safe(imageUrl(p?.avatar)||'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 80 80%22%3E%3Crect width=%2280%22 height=%2280%22 fill=%22%234a6590%22/%3E%3Ctext x=%2240%22 y=%2255%22 font-size=%2245%22 text-anchor=%22middle%22%3E👤%3C/text%3E%3C/svg%3E');
+ return `<span class="avatar-frame ${big?'big':''} ${tier}"><img class="avatar ${big?'big':''}" src="${src}" alt="アイコン"></span>`;
+};
 function busy(btn,yes){btn.disabled=yes;}
 async function compress(file,max=1400){const img=await createImageBitmap(file);const scale=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.round(img.width*scale);c.height=Math.round(img.height*scale);c.getContext('2d').drawImage(img,0,0,c.width,c.height);img.close();return new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(Error('画像変換に失敗')),'image/jpeg',.82));}
 async function uploadImage(file,path){
@@ -157,11 +164,11 @@ function renderRateRanking(){
    .sort((a,b)=>b.rate-a.rate||b.count-a.count||a.uid.localeCompare(b.uid)).slice(0,100);
  $('rankingList').innerHTML=rows.length?`<p class="muted">全期間・全編成の残り手数上位100投稿で計算。1投稿80〜100、最大10,000レート。</p>`+rows.map((r,i)=>{
    const owner=profiles[r.uid]||{};
-   return `<div class="item"><div class="rank ${rankClass(i+1)}">${i+1}位</div><button class="secondary mini person" data-uid="${safe(r.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div class="muted">${r.count} 投稿</div></div><div class="rate-score"><span class="small">レート </span><strong class="rate-number ${rateColorClass(r.rate)}">${formatRate(r.rate)}</strong><span class="small">pt</span></div></div>`;
+   return `<div class="item"><div class="rank ${rankClass(i+1)}">${i+1}位</div><button class="secondary mini person" data-uid="${safe(r.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner,r.uid)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div class="muted">${r.count} 投稿</div></div><div class="rate-score"><span class="small">レート </span><strong class="rate-number ${rateColorClass(r.rate)}">${formatRate(r.rate)}</strong><span class="small">pt</span></div></div>`;
  }).join(''):'まだ投稿がありません。';
 }
 function rankClass(rank){return rank===1?'rank-gold':rank===2?'rank-silver':rank===3?'rank-bronze':'rank-regular'}
-function postHtml(p,rank=null){const owner=profiles[p.uid]||{};const canDelete=user&&((isAdmin&&adminMode)||p.uid===user.uid);return `<div class="item">${rank!==null?`<div class="rank ${rankClass(rank)}">${rank}位</div>`:''}<button class="secondary mini person" data-uid="${safe(p.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div><span class="pill">残り ${p.moves} 手</span> <span class="small">${safe(categoryLabel(p.category))}</span></div><div class="muted">${dateStr(dateOf(p))}</div></div><button class="secondary mini viewphoto" data-url="${safe(imageUrl(p.image))}">画像を見る</button>${canDelete?`<button class="danger mini deletepost" data-id="${safe(p.id)}">削除</button>`:''}</div>`}
+function postHtml(p,rank=null){const owner=profiles[p.uid]||{};const canDelete=user&&((isAdmin&&adminMode)||p.uid===user.uid);return `<div class="item">${rank!==null?`<div class="rank ${rankClass(rank)}">${rank}位</div>`:''}<button class="secondary mini person" data-uid="${safe(p.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner,p.uid)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div><span class="pill">残り ${p.moves} 手</span> <span class="small">${safe(categoryLabel(p.category))}</span></div><div class="muted">${dateStr(dateOf(p))}</div></div><button class="secondary mini viewphoto" data-url="${safe(imageUrl(p.image))}">画像を見る</button>${canDelete?`<button class="danger mini deletepost" data-id="${safe(p.id)}">削除</button>`:''}</div>`}
 function renderRanking(){const isRate=period==='rate';show('rankCategoryWrap',!isRate&&period!=='best');$('rankingPage').classList.toggle('rate-mode',isRate);if(isRate){renderRateRanking();return;}const month=period==='month'?monthKey(new Date()):null;const bestOnly=period==='best';const arr=ranking(bestOnly?null:$('rankCategory').value,month,bestOnly);$('rankingList').innerHTML=arr.length?arr.map((p,i)=>postHtml(p,i+1)).join(''):'まだ投稿がありません。'}
 
 
@@ -180,7 +187,7 @@ function renderProfile(){
   return `<div class="monthly-group"><b>${safe(month)}</b>${rows}</div>`;
  });
  const historyPosts=(profileSort==='new'?[...mine].sort((a,b)=>dateOf(b)-dateOf(a)):sorted(mine)).map(p=>postHtml(p)).join('')||'<p class="muted">まだ投稿がありません</p>';
- $('profileContent').innerHTML=`<div class="flex">${avatar(owner,true)}<div><h2>${safe(owner.name||'ユーザー')}</h2><div class="profile-rating">レート <strong class="rate-number ${rateColorClass(ratingFor(uid))}">${formatRate(ratingFor(uid))}</strong>pt</div><div class="muted">${uid===user.uid?'自分のプロフィール':'ユーザープロフィール'}</div></div></div>${socialLinks(owner)?`<div class="social-links">${socialLinks(owner)}</div>`:''}<hr><div>投稿数（完走回数）</div><div class="stat">${mine.length} 回</div><h3>自己ベスト（最高残り手数）</h3>${best?postHtml(best):'<p class="muted">まだ記録がありません</p>'}<h3>月毎のランキング順位</h3>${history.join('')||'<p class="muted">ランキング履歴がありません</p>'}<h3>投稿履歴</h3><label for="profileSort">並び順</label><select id="profileSort" class="profile-sort"><option value="new" ${profileSort==='new'?'selected':''}>新しい順</option><option value="moves" ${profileSort==='moves'?'selected':''}>残り手数の多い順</option></select><div id="profilePosts">${historyPosts}</div>`;
+ $('profileContent').innerHTML=`<div class="flex">${avatar(owner,uid,true)}<div><h2>${safe(owner.name||'ユーザー')}</h2><div class="profile-rating">レート <strong class="rate-number ${rateColorClass(ratingFor(uid))}">${formatRate(ratingFor(uid))}</strong>pt</div><div class="muted">${uid===user.uid?'自分のプロフィール':'ユーザープロフィール'}</div></div></div>${socialLinks(owner)?`<div class="social-links">${socialLinks(owner)}</div>`:''}<hr><div>投稿数（完走回数）</div><div class="stat">${mine.length} 回</div><h3>自己ベスト（最高残り手数）</h3>${best?postHtml(best):'<p class="muted">まだ記録がありません</p>'}<h3>月毎のランキング順位</h3>${history.join('')||'<p class="muted">ランキング履歴がありません</p>'}<h3>投稿履歴</h3><label for="profileSort">並び順</label><select id="profileSort" class="profile-sort"><option value="new" ${profileSort==='new'?'selected':''}>新しい順</option><option value="moves" ${profileSort==='moves'?'selected':''}>残り手数の多い順</option></select><div id="profilePosts">${historyPosts}</div>`;
 }
 function renderAdmin(){if(!isAdmin||!adminMode)return;const all=[...posts].sort((a,b)=>dateOf(b)-dateOf(a));$('adminList').innerHTML=all.length?all.map(p=>postHtml(p)).join(''):'投稿はありません';}
 async function displayLoginCard(){
