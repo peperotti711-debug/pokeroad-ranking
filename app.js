@@ -187,7 +187,67 @@ function renderRateRanking(){
 }
 function rankClass(rank){return rank===1?'rank-gold':rank===2?'rank-silver':rank===3?'rank-bronze':'rank-regular'}
 function postHtml(p,rank=null,rateGain=null){const owner=profiles[p.uid]||{};const canDelete=user&&((isAdmin&&adminMode)||p.uid===user.uid);return `<div class="item">${rank!==null?`<div class="rank ${rankClass(rank)}">${rank}位</div>`:''}<button class="secondary mini person" data-uid="${safe(p.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner,p.uid)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div><span class="pill">残り ${p.moves} 手</span> <span class="small">${safe(categoryLabel(p.category))}</span></div><div class="muted">${dateStr(dateOf(p))}</div>${rateGain===null?'':`<div class="post-rate-gain">レート増加：<strong>+${formatRate(rateGain)}pt</strong></div>`}</div><button class="secondary mini viewphoto" data-url="${safe(imageUrl(p.image))}">画像を見る</button>${canDelete?`<button class="danger mini deletepost" data-id="${safe(p.id)}">削除</button>`:''}</div>`}
-function renderRanking(){const isRate=period==='rate';show('rankCategoryWrap',!isRate&&period!=='best');$('rankingPage').classList.toggle('rate-mode',isRate);if(isRate){renderRateRanking();return;}const month=period==='month'?monthKey(new Date()):null;const bestOnly=period==='best';const arr=ranking(bestOnly?null:$('rankCategory').value,month,bestOnly);$('rankingList').innerHTML=arr.length?arr.map((p,i)=>postHtml(p,i+1)).join(''):'まだ投稿がありません。'}
+
+// Season A begins in November 2026; subsequent seasons advance each calendar month.
+const SEASON_EPOCH=2026*12+10;
+function seasonForMonth(key){
+ const [y,m]=key.split('-').map(Number);
+ const offset=y*12+(m-1)-SEASON_EPOCH;
+ if(offset<0)return null;
+ const letter=String.fromCharCode(65+offset%26);
+ const cycle=Math.floor(offset/26)+1;
+ return 'シーズン'+letter+(cycle===1?'':cycle);
+}
+function currentSeasonMonth(){return monthKey(new Date())}
+function seasonDates(key){
+ const [year,month]=key.split('-').map(Number);
+ const end=new Date(year,month,0).getDate();
+ return `${year}/${month}/1〜${year}/${month}/${end}`;
+}
+function updateSeasonHeader(){
+ const key=currentSeasonMonth();
+ $('currentSeasonName').textContent=seasonForMonth(key)||'シーズン開始前';
+ $('currentSeasonDates').textContent=`開催期間：${seasonDates(key)}`;
+}
+let archiveMonth=null,archiveMode='month',archiveCategory='混合編成';
+function archiveRows(month,mode,cat){
+ const scoped=sorted(posts.filter(p=>monthKey(dateOf(p))===month&&(!cat||p.category===cat)));
+ if(mode==='rate'){
+  const ids=[...new Set(posts.filter(p=>monthKey(dateOf(p))===month).map(p=>p.uid))];
+  return ids.map(uid=>{
+   const mine=posts.filter(p=>p.uid===uid&&monthKey(dateOf(p))===month).sort((a,b)=>b.moves-a.moves).slice(0,100);
+   const rate=Math.round(mine.reduce((s,p)=>s+80+0.4*Math.min(50,Math.max(0,p.moves)),0)*10)/10;
+   return {uid,rate,count:mine.length};
+  }).sort((a,b)=>b.rate-a.rate||b.count-a.count||a.uid.localeCompare(b.uid)).slice(0,100);
+ }
+ if(mode==='best'){
+  const seen=new Set();
+  return scoped.filter(p=>{if(seen.has(p.uid))return false;seen.add(p.uid);return true}).slice(0,100);
+ }
+ return scoped.slice(0,100);
+}
+function renderPastRankings(){
+ const now=currentSeasonMonth();
+ const months=[...new Set(posts.map(p=>monthKey(dateOf(p))))].filter(m=>m>= '2026-11'&&m<now).sort().reverse();
+ const content=$('pastRankingContent');
+ if(!months.length){
+  content.innerHTML='<p class="past-empty">過去のランキングがありません</p>';
+  return;
+ }
+ if(!months.includes(archiveMonth))archiveMonth=months[0];
+ const choices=months.map(m=>`<option value="${safe(m)}" ${m===archiveMonth?'selected':''}>${safe(seasonForMonth(m))}（${safe(seasonDates(m))}）</option>`).join('');
+ const modes=[['month','ALL'],['best','自己ベ'],['rate','レート']];
+ const tabs=modes.map(([id,label])=>`<button type="button" class="${archiveMode===id?'active':'secondary'}" data-archive-mode="${id}">${label}</button>`).join('');
+ const rows=archiveRows(archiveMonth,archiveMode,archiveMode==='rate'?null:archiveCategory);
+ const entries=rows.map((r,i)=>{
+  const owner=profiles[r.uid]||{};
+  const score=archiveMode==='rate'?`レート ${formatRate(r.rate)}pt`:`残り ${r.moves}手`;
+  return `<div class="past-rank-row"><span class="past-place">${i+1}位</span><span class="past-name">${safe(owner.name||'ユーザー')}</span><span class="past-score">${score}</span></div>`;
+ }).join('');
+ content.innerHTML=`<label for="pastSeasonSelect">シーズンを選択</label><select id="pastSeasonSelect">${choices}</select><div class="past-mode-tabs">${tabs}</div>${archiveMode==='rate'?'':`<label for="pastCategorySelect">編成カテゴリー</label><select id="pastCategorySelect">${categories.map(c=>`<option value="${safe(c)}" ${c===archiveCategory?'selected':''}>${safe(categoryLabel(c))}</option>`).join('')}</select>`}<div>${entries||'<p class="past-empty">このシーズンの投稿はありません</p>'}</div>`;
+}
+
+function renderRanking(){updateSeasonHeader();const isRate=period==='rate';show('rankCategoryWrap',!isRate&&period!=='best');$('rankingPage').classList.toggle('rate-mode',isRate);if(isRate){renderRateRanking();return;}const month=period==='month'?monthKey(new Date()):null;const bestOnly=period==='best';const arr=ranking(bestOnly?null:$('rankCategory').value,month,bestOnly);$('rankingList').innerHTML=arr.length?arr.map((p,i)=>postHtml(p,i+1)).join(''):'まだ投稿がありません。'}
 
 
 function socialLinks(owner){const links=Array.isArray(owner.snsLinks)?owner.snsLinks:[];return links.filter(u=>typeof u==='string'&&/^https:\/\//i.test(u)).slice(0,3).map(u=>{try{const url=new URL(u);const display=(url.hostname.replace(/^www\./,'')+url.pathname.replace(/\/$/,'')).slice(0,48);return `<a href="${safe(url.href)}" target="_blank" rel="noopener noreferrer" class="social-link">${safe(display)} ↗</a>`;}catch{return '';}}).join('');}
@@ -394,7 +454,16 @@ async function verifyFinishImage(file){
 
 async function submitPost(){const b=$('submitPost'),file=$('postImage').files[0],num=Number($('moves').value),cat=$('category').value;if(!file)return notify('完走した瞬間の画像を選んでください');if($('moves').value.trim()===''||!Number.isInteger(num)||num<0||num>9999)return notify('残り手数を0〜9999の整数で入力してください');if(!categories.includes(cat))return;busy(b,true);notify('投稿画像の文字を確認しています…');try{await verifyFinishImage(file);const image=await uploadImage(file,`posts/${user.uid}/${crypto.randomUUID()}.jpg`);await addDoc(collection(db,'posts'),{uid:user.uid,image,moves:num,category:cat,createdAt:serverTimestamp()});$('postImage').value='';$('moves').value='';show('postPreview',false);await load();notify('投稿しました！');go('ranking')}catch(e){notify('投稿に失敗：'+errorText(e))}finally{busy(b,false)}}
 async function saveProfile(){const b=$('saveProfile'),name=$('editName').value.trim(),file=$('editAvatar').files[0];if(!name)return notify('名前を入力してください');const links=[];for(let i=1;i<=3;i++){const raw=$('social'+i).value.trim();if(!raw)continue;try{const url=new URL(raw);if(url.protocol!=='https:'||!url.hostname.includes('.'))throw Error();if(raw.length>500)throw Error();links.push(url.href)}catch{return notify('SNSリンク '+i+' は https:// から始まる正しいURLを入力してください')}}busy(b,true);try{const old=profiles[user.uid]||{};let avatarUrl=old.avatar||'';if(file)avatarUrl=await uploadImage(file,`avatars/${user.uid}/${Date.now()}.jpg`);await setDoc(doc(db,'profiles',user.uid),{name,avatar:avatarUrl,snsLinks:links},{merge:true});await load();notify('設定を保存しました')}catch(e){notify('保存に失敗：'+errorText(e))}finally{busy(b,false)}}
-function wire(){ const helpOverlay=$('rankingHelpOverlay');const closeHelp=()=>{helpOverlay.classList.add('hidden');document.body.style.overflow='';$('openRankingHelp').focus()};$('openRankingHelp').onclick=()=>{helpOverlay.classList.remove('hidden');document.body.style.overflow='hidden';$('rankingHelpDialog').scrollTop=0;$('closeRankingHelp').focus()};$('closeRankingHelp').onclick=closeHelp;helpOverlay.addEventListener('click',e=>{if(e.target===helpOverlay)closeHelp()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!helpOverlay.classList.contains('hidden'))closeHelp()}); $('toCreate').onclick=()=>{show('createView');show('loginView',false);$('toCreate').classList.add('active');$('toLogin').classList.remove('active')};$('toLogin').onclick=()=>{show('createView',false);show('loginView');$('toLogin').classList.add('active');$('toCreate').classList.remove('active')};$('createBtn').onclick=createAccount;$('loginBtn').onclick=()=>login('', $('loginPassword').value);$('loginImage').onchange=e=>{if(e.target.files[0])loginFromImage(e.target.files[0])};$('finishCard').onclick=async()=>{cardInfo=null;creatingAccount=false;$('cardPassword').textContent='';show('cardSection',false);show('app');show('nav');try{await load();profileUid=user.uid;go('home')}catch(e){notify('プロフィール読み込みに失敗：'+errorText(e))}};$('logout').onclick=()=>signOut(auth);$('showLoginCardBtn').onclick=()=>{$('cardVerifyPassword').value='';$('loginCardPreview').removeAttribute('src');show('loginCardPreview',false);show('loginCardHelp',false);$('loginCardDialog').showModal()};$('generateLoginCard').onclick=displayLoginCard;$('closeLoginCard').onclick=()=>$('loginCardDialog').close();$('profileSettingsBtn').onclick=()=>go('settings');$('adminModeBtn').onclick=()=>{if(!isAdmin||!user)return;adminMode=!adminMode;$('adminModeBtn').textContent=adminMode?'運営モード':'通常モード';$('adminModeBtn').classList.toggle('mode-on',adminMode);$('adminModeBtn').setAttribute('aria-pressed',String(adminMode));show('adminTab',adminMode);show('adminBadge',adminMode);if(!adminMode&&page==='admin'){profileUid=user.uid;go('profile')}else render();notify(adminMode?'運営モードに切り替えました':'通常モードに切り替えました')};$('submitPost').onclick=submitPost;$('saveProfile').onclick=saveProfile;$('postImage').onchange=e=>{const f=e.target.files[0];if(!f){show('postPreview',false);return} $('postPreview').src=URL.createObjectURL(f);show('postPreview')};$('rankCategory').onchange=renderRanking;document.body.addEventListener('change',e=>{if(e.target.id==='profileSort'){profileSort=e.target.value;renderProfile()}});document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{period=b.dataset.period;document.querySelectorAll('[data-period]').forEach(x=>x.classList.toggle('active',x===b));renderRanking()});document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{if(b.dataset.page==='profile')profileUid=user.uid;go(b.dataset.page)});document.body.addEventListener('click',e=>{const person=e.target.closest('.person');if(person){profileUid=person.dataset.uid;go('profile')}const del=e.target.closest('.deletepost');if(del)deletePost(del.dataset.id);const photo=e.target.closest('.viewphoto');if(photo){$('largePhoto').src=photo.dataset.url;$('photoDialog').showModal()}});$('closePhoto').onclick=()=>$('photoDialog').close();$('closeLastMonth').onclick=()=>$('lastMonthDialog').close()}
+function wire(){
+ const pastOverlay=$('pastRankingOverlay');
+ const closePast=()=>{pastOverlay.classList.add('hidden');document.body.style.overflow='';$('openPastRankings').focus()};
+ $('openPastRankings').onclick=()=>{renderPastRankings();pastOverlay.classList.remove('hidden');document.body.style.overflow='hidden';$('closePastRankings').focus()};
+ $('closePastRankings').onclick=closePast;
+ pastOverlay.addEventListener('click',e=>{if(e.target===pastOverlay)closePast()});
+ pastOverlay.addEventListener('change',e=>{if(e.target.id==='pastSeasonSelect')archiveMonth=e.target.value;if(e.target.id==='pastCategorySelect')archiveCategory=e.target.value;renderPastRankings()});
+ pastOverlay.addEventListener('click',e=>{const b=e.target.closest('[data-archive-mode]');if(b){archiveMode=b.dataset.archiveMode;renderPastRankings()}});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!pastOverlay.classList.contains('hidden'))closePast()});
+ const helpOverlay=$('rankingHelpOverlay');const closeHelp=()=>{helpOverlay.classList.add('hidden');document.body.style.overflow='';$('openRankingHelp').focus()};$('openRankingHelp').onclick=()=>{helpOverlay.classList.remove('hidden');document.body.style.overflow='hidden';$('rankingHelpDialog').scrollTop=0;$('closeRankingHelp').focus()};$('closeRankingHelp').onclick=closeHelp;helpOverlay.addEventListener('click',e=>{if(e.target===helpOverlay)closeHelp()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!helpOverlay.classList.contains('hidden'))closeHelp()}); $('toCreate').onclick=()=>{show('createView');show('loginView',false);$('toCreate').classList.add('active');$('toLogin').classList.remove('active')};$('toLogin').onclick=()=>{show('createView',false);show('loginView');$('toLogin').classList.add('active');$('toCreate').classList.remove('active')};$('createBtn').onclick=createAccount;$('loginBtn').onclick=()=>login('', $('loginPassword').value);$('loginImage').onchange=e=>{if(e.target.files[0])loginFromImage(e.target.files[0])};$('finishCard').onclick=async()=>{cardInfo=null;creatingAccount=false;$('cardPassword').textContent='';show('cardSection',false);show('app');show('nav');try{await load();profileUid=user.uid;go('home')}catch(e){notify('プロフィール読み込みに失敗：'+errorText(e))}};$('logout').onclick=()=>signOut(auth);$('showLoginCardBtn').onclick=()=>{$('cardVerifyPassword').value='';$('loginCardPreview').removeAttribute('src');show('loginCardPreview',false);show('loginCardHelp',false);$('loginCardDialog').showModal()};$('generateLoginCard').onclick=displayLoginCard;$('closeLoginCard').onclick=()=>$('loginCardDialog').close();$('profileSettingsBtn').onclick=()=>go('settings');$('adminModeBtn').onclick=()=>{if(!isAdmin||!user)return;adminMode=!adminMode;$('adminModeBtn').textContent=adminMode?'運営モード':'通常モード';$('adminModeBtn').classList.toggle('mode-on',adminMode);$('adminModeBtn').setAttribute('aria-pressed',String(adminMode));show('adminTab',adminMode);show('adminBadge',adminMode);if(!adminMode&&page==='admin'){profileUid=user.uid;go('profile')}else render();notify(adminMode?'運営モードに切り替えました':'通常モードに切り替えました')};$('submitPost').onclick=submitPost;$('saveProfile').onclick=saveProfile;$('postImage').onchange=e=>{const f=e.target.files[0];if(!f){show('postPreview',false);return} $('postPreview').src=URL.createObjectURL(f);show('postPreview')};$('rankCategory').onchange=renderRanking;document.body.addEventListener('change',e=>{if(e.target.id==='profileSort'){profileSort=e.target.value;renderProfile()}});document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{period=b.dataset.period;document.querySelectorAll('[data-period]').forEach(x=>x.classList.toggle('active',x===b));renderRanking()});document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{if(b.dataset.page==='profile')profileUid=user.uid;go(b.dataset.page)});document.body.addEventListener('click',e=>{const person=e.target.closest('.person');if(person){profileUid=person.dataset.uid;go('profile')}const del=e.target.closest('.deletepost');if(del)deletePost(del.dataset.id);const photo=e.target.closest('.viewphoto');if(photo){$('largePhoto').src=photo.dataset.url;$('photoDialog').showModal()}});$('closePhoto').onclick=()=>$('photoDialog').close();$('closeLastMonth').onclick=()=>$('lastMonthDialog').close()}
 wire();refreshLoginId();if(firebaseConfig.apiKey==='YOUR_API_KEY'){show('setup')}else{try{const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);onAuthStateChanged(auth,async u=>{user=u;isAdmin=false;adminMode=false;show('adminTab',false);show('adminBadge',false);show('logout',false);$('adminModeBtn').textContent='通常モード';$('adminModeBtn').classList.remove('mode-on');$('adminModeBtn').setAttribute('aria-pressed','false');if(!u){show('siteHeader',false);show('auth');show('app',false);show('nav',false);show('cardSection',false);return}if(cardInfo||creatingAccount)return;try{const token=await u.getIdTokenResult(true);isAdmin=token.claims.admin===true}catch(err){console.warn(err)}show('adminTab',isAdmin&&adminMode);show('adminBadge',isAdmin&&adminMode);show('auth',false);show('app');show('nav');try{await load();go(page);await showLastMonthOnce()}catch(e){notify('データ読み込みに失敗：'+errorText(e))}})}catch(e){show('setup');notify(errorText(e))}}
 
 
