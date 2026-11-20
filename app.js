@@ -122,9 +122,20 @@ function ranking(cat,month=null,bestOnly=false){
  const seen=new Set();return filtered.filter(p=>{if(seen.has(p.uid))return false;seen.add(p.uid);return true}).slice(0,100);
 }
 // All-time rating: 80–100 points per post, best 100 posts only.
+// Rate points depend on the team category; cap each post at 100.0pt.
+function pointsForPost(p){
+ const moves=Math.max(0,Number(p.moves)||0);
+ return p.category==='その他'?84+0.4*Math.min(40,moves):80+0.4*Math.min(50,moves);
+}
+function bestRatePosts(items){
+ return [...items].sort((a,b)=>pointsForPost(b)-pointsForPost(a)||b.moves-a.moves||dateOf(a)-dateOf(b)).slice(0,100);
+}
+function sumPostRates(items){
+ return Math.round(items.reduce((sum,p)=>sum+pointsForPost(p),0)*10)/10;
+}
 function ratingFor(uid){
- const mine=posts.filter(p=>p.uid===uid).sort((a,b)=>b.moves-a.moves).slice(0,100);
- return Math.round(mine.reduce((sum,p)=>sum+80+0.4*Math.min(50,Math.max(0,p.moves)),0)*10)/10;
+ const mine=bestRatePosts(posts.filter(p=>p.uid===uid));
+ return sumPostRates(mine);
 }
 // Always show exactly one decimal place, with Japanese thousands separators.
 const formatRate=rate=>Number(rate).toLocaleString('ja-JP',{minimumFractionDigits:1,maximumFractionDigits:1});
@@ -142,8 +153,8 @@ function postRateGains(uid){
  const mine=posts.filter(p=>p.uid===uid).sort((a,b)=>dateOf(a)-dateOf(b)||a.id.localeCompare(b.id));
  const gains=new Map();let top=[],prior=0;
  for(const p of mine){
-  top.push(p);top.sort((a,b)=>b.moves-a.moves);top=top.slice(0,100);
-  const next=Math.round(top.reduce((sum,x)=>sum+80+0.4*Math.min(50,Math.max(0,x.moves)),0)*10)/10;
+  top=bestRatePosts([...top,p]);
+  const next=sumPostRates(top);
   gains.set(p.id,Math.max(0,Math.round((next-prior)*10)/10));prior=next;
  }
  return gains;
@@ -202,7 +213,7 @@ function currentSeasonMonth(){return monthKey(new Date())}
 function seasonDates(key){
  const [year,month]=key.split('-').map(Number);
  const end=new Date(year,month,0).getDate();
- return `${year}/${month}/1〜${year}/${month}/${end}`;
+ return `${year}/${month}/${key==='2026-11'?15:1}〜${year}/${month}/${end}`;
 }
 function updateSeasonHeader(){
  const key=currentSeasonMonth();
@@ -215,8 +226,8 @@ function archiveRows(month,mode,cat){
  if(mode==='rate'){
   const ids=[...new Set(posts.filter(p=>monthKey(dateOf(p))===month).map(p=>p.uid))];
   return ids.map(uid=>{
-   const mine=posts.filter(p=>p.uid===uid&&monthKey(dateOf(p))===month).sort((a,b)=>b.moves-a.moves).slice(0,100);
-   const rate=Math.round(mine.reduce((s,p)=>s+80+0.4*Math.min(50,Math.max(0,p.moves)),0)*10)/10;
+   const mine=bestRatePosts(posts.filter(p=>p.uid===uid&&monthKey(dateOf(p))===month));
+   const rate=sumPostRates(mine);
    return {uid,rate,count:mine.length};
   }).sort((a,b)=>b.rate-a.rate||b.count-a.count||a.uid.localeCompare(b.uid)).slice(0,100);
  }
