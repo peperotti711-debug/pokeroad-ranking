@@ -465,7 +465,34 @@ async function verifyFinishImage(file){
 
 async function submitPost(){const b=$('submitPost'),file=$('postImage').files[0],num=Number($('moves').value),cat=$('category').value;if(!file)return notify('完走した瞬間の画像を選んでください');if($('moves').value.trim()===''||!Number.isInteger(num)||num<0||num>9999)return notify('残り手数を0〜9999の整数で入力してください');if(!categories.includes(cat))return;busy(b,true);notify('投稿画像の文字を確認しています…');try{await verifyFinishImage(file);const image=await uploadImage(file,`posts/${user.uid}/${crypto.randomUUID()}.jpg`);await addDoc(collection(db,'posts'),{uid:user.uid,image,moves:num,category:cat,createdAt:serverTimestamp()});$('postImage').value='';$('moves').value='';show('postPreview',false);await load();notify('投稿しました！');go('ranking')}catch(e){notify('投稿に失敗：'+errorText(e))}finally{busy(b,false)}}
 async function saveProfile(){const b=$('saveProfile'),name=$('editName').value.trim(),file=$('editAvatar').files[0];if(!name)return notify('名前を入力してください');const links=[];for(let i=1;i<=3;i++){const raw=$('social'+i).value.trim();if(!raw)continue;try{const url=new URL(raw);if(url.protocol!=='https:'||!url.hostname.includes('.'))throw Error();if(raw.length>500)throw Error();links.push(url.href)}catch{return notify('SNSリンク '+i+' は https:// から始まる正しいURLを入力してください')}}busy(b,true);try{const old=profiles[user.uid]||{};let avatarUrl=old.avatar||'';if(file)avatarUrl=await uploadImage(file,`avatars/${user.uid}/${Date.now()}.jpg`);await setDoc(doc(db,'profiles',user.uid),{name,avatar:avatarUrl,snsLinks:links},{merge:true});await load();notify('設定を保存しました')}catch(e){notify('保存に失敗：'+errorText(e))}finally{busy(b,false)}}
+
+function setupRateCalculator(){
+ const rateTab=$('calcRateTab'),movesTab=$('calcMovesTab');
+ const cats=[['コンボ編成','混合編成'],['リレーラッシュ編成','リレーラッシュ編成'],['その他編成','その他']];
+ const calc=(category,moves)=>pointsForPost({category,moves});
+ function nearest(category,target){
+  const base=calc(category,0),cap=category==='その他'?40:50;
+  // Always meet or exceed the requested rate when possible.
+  // A tiny epsilon avoids floating-point errors at exact 0.4pt steps.
+  const raw=(target-base)/0.4;
+  const n=Math.max(0,Math.min(cap,Math.ceil(raw-1e-9)));
+  return {moves:n,rate:calc(category,n),reachable:target<=calc(category,cap)+1e-9};
+ }
+ function renderCalc(){
+  const mv=$('calcMoves').value.trim(),points=$('calcPoints').value.trim();
+  if(mv===''||!Number.isSafeInteger(Number(mv))||Number(mv)<0){$('calcRateResult').textContent='0以上の整数を入力してください';}
+  else{const cat=$('calcCategory').value;const val=calc(cat,Number(mv));$('calcRateResult').innerHTML=`<div class="calc-small">この記録の獲得レート</div><div class="calc-big">+${formatRate(val)}pt</div><div class="calc-small">${cat==='その他'?'84 ＋ 残り手数 × 0.4（最大40手）':'80 ＋ 残り手数 × 0.4（最大50手）'}</div>`;}
+  if(points===''||!Number.isFinite(Number(points))){$('calcMovesResult').textContent='レートを数値で入力してください';return;}
+  const target=Number(points);
+  $('calcMovesResult').innerHTML='<div class="calc-small">入力したレート以上になる最小の残り手数と実際のレート</div>'+cats.map(([name,cat])=>{const r=nearest(cat,target);return `<div class="calc-row"><div>${name}</div><div class="calc-line"><strong>${r.reachable?r.moves+'手':'達成不可'}</strong><span class="calc-pt">${formatRate(r.rate)}pt${r.reachable?'（獲得）':'（最大）'}</span></div></div>`}).join('');
+ }
+ function switchTab(rate){$('calcRateInputs').classList.toggle('hidden',!rate);$('calcMovesInputs').classList.toggle('hidden',rate);rateTab.classList.toggle('active',rate);movesTab.classList.toggle('active',!rate);rateTab.setAttribute('aria-pressed',String(rate));movesTab.setAttribute('aria-pressed',String(!rate));renderCalc()}
+ rateTab.addEventListener('click',()=>switchTab(true));movesTab.addEventListener('click',()=>switchTab(false));
+ ['calcCategory','calcMoves','calcPoints'].forEach(id=>$(id).addEventListener('input',renderCalc));renderCalc();
+}
+
 function wire(){
+ setupRateCalculator();
  const pastOverlay=$('pastRankingOverlay');
  const closePast=()=>{pastOverlay.classList.add('hidden');document.body.style.overflow='';$('openPastRankings').focus()};
  $('openPastRankings').onclick=()=>{renderPastRankings();pastOverlay.classList.remove('hidden');document.body.style.overflow='hidden';$('closePastRankings').focus()};
