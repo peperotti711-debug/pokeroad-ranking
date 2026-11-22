@@ -400,7 +400,18 @@ async function verifyFinishImage(file){
       const latin=compact.replace(/[^A-Z0-9]/g,'');
       for(let i=0;i+4<=latin.length;i++){
         const token=latin.slice(i,i+4).replace(/O/g,'0').replace(/I/g,'1');
-        if(editDistance(token,'PR60')<=1 && token.slice(0,2)!=='00')return true;
+        if((editDistance(token,'PR60')<=1 && token.slice(0,2)!=='00') || editDistance(token,'SM60')<=1)return true;
+      }
+      return false;
+    }
+    if(type==='mega-eng'){
+      const latin=compact.replace(/[^A-Z]/g,'');
+      const target='MEGARAYQUAZA';
+      if(latin.includes(target))return true;
+      for(const size of [target.length-1,target.length,target.length+1]){
+        for(let i=0;i+size<=latin.length;i++){
+          if(editDistance(latin.slice(i,i+size),target)<=1)return true;
+        }
       }
       return false;
     }
@@ -422,9 +433,15 @@ async function verifyFinishImage(file){
     if(w<250||h<400)throw Error('画像の解像度が低すぎます');
     // Relative coordinates work with different phone and tablet resolutions.
     const regions=[
+      // English stage label at the upper-left of the supplied screenshot.
+      {x:0,y:.035,w:.30,h:.065,lang:'eng',type:'pr'},
       {x:0,y:.045,w:.31,h:.13,lang:'eng',type:'pr'},
+      // English boss name in the middle-right label.
+      {x:.64,y:.332,w:.34,h:.058,lang:'eng',type:'mega-eng'},
+      {x:.60,y:.32,w:.40,h:.14,lang:'eng',type:'mega-eng'},
       {x:0,y:0,w:.55,h:.25,lang:'eng',type:'pr'},
       {x:.56,y:.37,w:.44,h:.15,lang:'jpn',type:'mega'},
+      {x:.54,y:.30,w:.46,h:.20,lang:'eng',type:'mega-eng'},
       {x:.30,y:.10,w:.70,h:.68,lang:'jpn',type:'mega'}
     ];
     for(const r of regions){
@@ -459,7 +476,7 @@ async function verifyFinishImage(file){
         if(recognized(result.data?.text,r.type))return true;
       }
     }
-    throw Error('画像から「PR60」または「メガレックウザ」を確認できませんでした。文字が見える完走画像を選択してください');
+    throw Error('「PR60」「SM60」「メガレックウザ」「Mega Rayquaza」を確認できませんでした。ステージ名かボス名がはっきり写った完走画像を選択してください');
   }finally{bitmap.close()}
 }
 
