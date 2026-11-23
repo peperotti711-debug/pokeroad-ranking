@@ -142,11 +142,18 @@ function ratingFor(uid){
 const formatRate=rate=>Number(rate).toLocaleString('ja-JP',{minimumFractionDigits:1,maximumFractionDigits:1});
 // Visual rating tiers; ranking and score calculations are unchanged.
 function rateColorClass(rate){
- if(rate>=9500)return 'rate-rainbow';
- if(rate>=8000)return 'rate-gradient';
- if(rate>=5000)return 'rate-gold';
- if(rate>=3000)return 'rate-bronze';
- if(rate>=1000)return 'rate-blue';
+ if(rate>=10000)return 'rate-ultra-max';
+ if(rate>=9500)return 'rate-ultra';
+ if(rate>=9000)return 'rate-rainbow-3';
+ if(rate>=8500)return 'rate-rainbow-2';
+ if(rate>=8000)return 'rate-rainbow-1';
+ if(rate>=7000)return 'rate-gold-3';
+ if(rate>=6000)return 'rate-gold-2';
+ if(rate>=5000)return 'rate-gold-1';
+ if(rate>=4000)return 'rate-bronze-2';
+ if(rate>=3000)return 'rate-bronze-1';
+ if(rate>=2000)return 'rate-blue-2';
+ if(rate>=1000)return 'rate-blue-1';
  return 'rate-default';
 }
 // Reconstruct the rate gain at the time of each submission (best 100 records).
@@ -160,7 +167,7 @@ function postRateGains(uid){
  }
  return gains;
 }
-const rateTiers=[{threshold:1000,label:'青レート'},{threshold:3000,label:'銅レート'},{threshold:5000,label:'金レート'},{threshold:8000,label:'虹レート'},{threshold:9500,label:'極虹レート'}];
+const rateTiers=[{threshold:1000,label:'青レート Lv1'},{threshold:2000,label:'青レート Lv2'},{threshold:3000,label:'銅レート Lv1'},{threshold:4000,label:'銅レート Lv2'},{threshold:5000,label:'金レート Lv1'},{threshold:6000,label:'金レート Lv2'},{threshold:7000,label:'金レート Lv3'},{threshold:8000,label:'虹レート Lv1'},{threshold:8500,label:'虹レート Lv2'},{threshold:9000,label:'虹レート Lv3'},{threshold:9500,label:'極虹レート'},{threshold:10000,label:'極虹レート（理論値）'}];
 function renderNotifications(){
  const mine=posts.filter(p=>p.uid===user.uid).sort((a,b)=>dateOf(a)-dateOf(b)||a.id.localeCompare(b.id));
  let top=[],prior=0;const events=[];const monthCounts=new Map();
@@ -667,3 +674,13 @@ async function refreshRanking() {
 
 document.getElementById('refreshRankingBtn')
   ?.addEventListener('click', refreshRanking);
+
+// Refresh the full historical feed using the same Firestore collections as the rest of the site.
+async function refreshRoadFeed(){
+ const btn=document.getElementById('refreshRoadFeedBtn');if(!btn||btn.disabled)return;
+ btn.disabled=true;btn.textContent='更新中…';
+ try{await load();renderRoadFeed();notify('投稿一覧を更新しました！')}
+ catch(e){notify('投稿一覧の更新に失敗しました：'+errorText(e))}
+ finally{btn.disabled=false;btn.textContent='🔄 更新'}
+}
+document.getElementById('refreshRoadFeedBtn')?.addEventListener('click',refreshRoadFeed);
