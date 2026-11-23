@@ -182,7 +182,10 @@ function renderNotifications(){
    monthCounts.set(month,monthly);
    if([10,20,30].includes(monthly)){
      const time=dateStr(dateOf(p));
-     events.push({time,sort:dateOf(p).getTime(),id:p.id,html:`<div class="notice-title"><b>MONTHLY COMPLETE!</b><div>今月の完走回数が<strong>${monthly}回</strong>に達しました！アイコンのふちの色が変わります！</div></div><span class="notice-time">${safe(time)}</span>`});
+     const owner=profiles[user.uid]||{};
+     const borderTier=monthly>=30?'tier-30':monthly>=20?'tier-20':'tier-10';
+     const borderedAvatar=avatar(owner,null).replace('avatar-frame  ','avatar-frame '+borderTier+' ');
+     events.push({time,sort:dateOf(p).getTime(),id:p.id,html:`<div class="notice-title notice-monthly"><div class="notice-monthly-copy"><b>MONTHLY COMPLETE!</b><div>今月の完走回数が<strong>${monthly}回</strong>に達しました！</div><div>アイコンのふちの色が変わります！</div></div><span class="notice-monthly-avatar" aria-label="変更後のアイコン">${borderedAvatar}</span></div><span class="notice-time">${safe(time)}</span>`});
    }
    prior=next;
  }
@@ -311,11 +314,11 @@ function roadHistoricalFeed(){
 function renderRoadFeed(){
  const target=$('roadFeedList');if(!target)return;
  const {feed,gains,tierEvents}=roadHistoricalFeed();
- $('roadFeedCount').textContent=`全${posts.length}件の投稿・レート帯変更${tierEvents.length}件（過去の記録を含む）`;
+ $('roadFeedCount').textContent=`全${posts.length}件の投稿・レート帯変更${tierEvents.length}件`;
  target.innerHTML=feed.length?feed.map(item=>{
   if(item.type==='tier'){
    const owner=profiles[item.uid]||{};
-   return `<article class="road-chat-tier-event"><span class="tier-icon" aria-hidden="true">🏅</span><div class="tier-details"><button type="button" class="tier-user person" data-uid="${safe(item.uid)}">${safe(owner.name||'ユーザー')}</button><strong>RATING UP! <span class="rate-number ${rateColorClass(item.tier.threshold)}">${safe(item.tier.label)}</span> に到達！</strong><div class="muted">レート ${formatRate(item.rate)}pt</div><time class="tier-time">${dateStr(dateOf(item.post))}</time></div></article>`;
+   return `<article class="road-chat-message road-chat-tier-message"><button type="button" class="road-chat-avatar person" data-uid="${safe(item.uid)}" aria-label="${safe(owner.name||'ユーザー')}のプロフィール">${avatar(owner,item.uid)}</button><div class="road-chat-content"><div class="road-chat-byline"><button type="button" class="road-chat-author person" data-uid="${safe(item.uid)}">${safe(owner.name||'ユーザー')}</button><time>${dateStr(dateOf(item.post))}</time></div><div class="road-chat-tier-event"><span class="tier-icon" aria-hidden="true">🏅</span><div class="tier-details"><strong>RATING UP! <span class="rate-number ${rateColorClass(item.tier.threshold)}">${safe(item.tier.label)}</span> に到達！</strong><div class="muted">レート <strong class="rate-number ${rateColorClass(item.rate)}">${formatRate(item.rate)}</strong>pt</div></div></div></div></article>`;
   }
   const p=item.post,owner=profiles[p.uid]||{},photo=imageUrl(p.image),gain=gains.get(p.id);
   return `<article class="road-chat-message"><button type="button" class="road-chat-avatar person" data-uid="${safe(p.uid)}" aria-label="${safe(owner.name||'ユーザー')}のプロフィール">${avatar(owner,p.uid)}</button><div class="road-chat-content"><div class="road-chat-byline"><button type="button" class="road-chat-author person" data-uid="${safe(p.uid)}">${safe(owner.name||'ユーザー')}</button><time>${p.createdAt?.toDate?.()?dateStr(dateOf(p)):'投稿日時不明'}</time></div><div class="road-chat-bubble"><div class="road-chat-metrics"><span class="pill">${safe(categoryLabel(p.category))}</span><strong>残り ${p.moves} 手</strong></div><div class="road-chat-gain">レート増加：<strong>+${formatRate(gain??0)}pt</strong></div>${photo?`<img class="road-chat-image" src="${safe(photo)}" alt="${safe(owner.name||'ユーザー')}の完走記録画像" loading="lazy">`:'<p class="muted">画像を表示できません</p>'}</div></div></article>`;
