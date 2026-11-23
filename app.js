@@ -194,9 +194,10 @@ function renderRateRanking(){
    .sort((a,b)=>b.rate-a.rate||b.count-a.count||a.uid.localeCompare(b.uid)).slice(0,100);
  $('rankingList').innerHTML=rows.length?rows.map((r,i)=>{
    const owner=profiles[r.uid]||{};
-   return `<div class="item"><div class="rank ${rankClass(i+1)}">${i+1}位</div><button class="secondary mini person" data-uid="${safe(r.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner,r.uid)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div class="muted">${r.count} 投稿</div></div><div class="rate-score"><span class="small">レート </span><strong class="rate-number ${rateColorClass(r.rate)}">${formatRate(r.rate)}</strong><span class="small">pt</span></div></div>`;
+   return `<div class="item"><div class="rank ${rankClass(competitionRank(rows,i,r=>r.rate))}">${competitionRank(rows,i,r=>r.rate)}位</div><button class="secondary mini person" data-uid="${safe(r.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner,r.uid)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div class="muted">${r.count} 投稿</div></div><div class="rate-score"><span class="small">レート </span><strong class="rate-number ${rateColorClass(r.rate)}">${formatRate(r.rate)}</strong><span class="small">pt</span></div></div>`;
  }).join(''):'まだ投稿がありません。';
 }
+function competitionRank(rows,index,score){let first=index;while(first>0&&score(rows[first-1])===score(rows[index]))first--;return first+1}
 function rankClass(rank){return rank===1?'rank-gold':rank===2?'rank-silver':rank===3?'rank-bronze':'rank-regular'}
 function postHtml(p,rank=null,rateGain=null){const owner=profiles[p.uid]||{};const canDelete=user&&((isAdmin&&adminMode)||p.uid===user.uid);return `<div class="item">${rank!==null?`<div class="rank ${rankClass(rank)}">${rank}位</div>`:''}<button class="secondary mini person" data-uid="${safe(p.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner,p.uid)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div><span class="pill">残り ${p.moves} 手</span> <span class="small">${safe(categoryLabel(p.category))}</span></div><div class="muted">${dateStr(dateOf(p))}</div>${rateGain===null?'':`<div class="post-rate-gain">レート増加：<strong>+${formatRate(rateGain)}pt</strong></div>`}</div><button class="secondary mini viewphoto" data-url="${safe(imageUrl(p.image))}">画像を見る</button>${canDelete?`<button class="danger mini deletepost" data-id="${safe(p.id)}">削除</button>`:''}</div>`}
 
@@ -254,12 +255,12 @@ function renderPastRankings(){
  const entries=rows.map((r,i)=>{
   const owner=profiles[r.uid]||{};
   const score=archiveMode==='rate'?`レート ${formatRate(r.rate)}pt`:`残り ${r.moves}手`;
-  return `<div class="past-rank-row"><span class="past-place">${i+1}位</span><span class="past-name">${safe(owner.name||'ユーザー')}</span><span class="past-score">${score}</span></div>`;
+  return `<div class="past-rank-row"><span class="past-place">${competitionRank(rows,i,r=>archiveMode==='rate'?r.rate:r.moves)}位</span><span class="past-name">${safe(owner.name||'ユーザー')}</span><span class="past-score">${score}</span></div>`;
  }).join('');
  content.innerHTML=`<label for="pastSeasonSelect">シーズンを選択</label><select id="pastSeasonSelect">${choices}</select><div class="past-mode-tabs">${tabs}</div>${archiveMode==='rate'?'':`<label for="pastCategorySelect">編成カテゴリー</label><select id="pastCategorySelect">${categories.map(c=>`<option value="${safe(c)}" ${c===archiveCategory?'selected':''}>${safe(categoryLabel(c))}</option>`).join('')}</select>`}<div>${entries||'<p class="past-empty">このシーズンの投稿はありません</p>'}</div>`;
 }
 
-function renderRanking(){updateSeasonHeader();const isRate=period==='rate';show('rankCategoryWrap',!isRate&&period!=='best');$('rankingPage').classList.toggle('rate-mode',isRate);if(isRate){renderRateRanking();return;}const month=period==='month'?monthKey(new Date()):null;const bestOnly=period==='best';const arr=ranking(bestOnly?null:$('rankCategory').value,month,bestOnly);$('rankingList').innerHTML=arr.length?arr.map((p,i)=>postHtml(p,i+1)).join(''):'まだ投稿がありません。'}
+function renderRanking(){updateSeasonHeader();const isRate=period==='rate';show('rankCategoryWrap',!isRate&&period!=='best');$('rankingPage').classList.toggle('rate-mode',isRate);if(isRate){renderRateRanking();return;}const month=period==='month'?monthKey(new Date()):null;const bestOnly=period==='best';const arr=ranking(bestOnly?null:$('rankCategory').value,month,bestOnly);$('rankingList').innerHTML=arr.length?arr.map((p,i)=>postHtml(p,competitionRank(arr,i,r=>r.moves))).join(''):'まだ投稿がありません。'}
 
 
 function socialLinks(owner){const links=Array.isArray(owner.snsLinks)?owner.snsLinks:[];return links.filter(u=>typeof u==='string'&&/^https:\/\//i.test(u)).slice(0,3).map(u=>{try{const url=new URL(u);const display=(url.hostname.replace(/^www\./,'')+url.pathname.replace(/\/$/,'')).slice(0,48);return `<a href="${safe(url.href)}" target="_blank" rel="noopener noreferrer" class="social-link">${safe(display)} ↗</a>`;}catch{return '';}}).join('');}
@@ -276,7 +277,7 @@ function renderProfile(){
  const history=months.map(month=>{
   const rows=categories.map(cat=>{
    const pos=ranking(cat,month,true).findIndex(p=>p.uid===uid);
-   return `<div class="monthly-row"><span>${safe(categoryLabel(cat))}</span><b>${pos<0?'／':`${pos+1}位`}</b></div>`;
+   return `<div class="monthly-row"><span>${safe(categoryLabel(cat))}</span><b>${pos<0?'／':`${competitionRank(ranking(cat,month,true),pos,r=>r.moves)}位`}</b></div>`;
   }).join('');
   return `<div class="monthly-group"><b>${safe(month)}</b>${rows}</div>`;
  });
@@ -368,7 +369,7 @@ async function showLastMonthOnce(){
  const last=previousMonth();
  const results=categories.map(cat=>{
    const arr=ranking(cat,last),index=arr.findIndex(p=>p.uid===user.uid);
-   return {cat,rank:index<0?null:index+1};
+   return {cat,rank:index<0?null:competitionRank(arr,index,r=>r.moves)};
  });
  $('lastMonthTitle').textContent=`${last.replace('-','年')}月の順位`;
  $('lastMonthContent').innerHTML=results.map(r=>`<div class="item"><div class="grow"><b>${safe(categoryLabel(r.cat))}</b></div><b>${r.rank===null?'ランク外':`${r.rank}位`}</b></div>`).join('');
@@ -544,7 +545,16 @@ function uxUsageHtml(stageIndex=null){
  const ranks=uxUsageCounts(stageIndex);
  if(!ranks.length)return '<p class="muted">まだ使用ポケモンの記録がありません。</p>';
  return `<p class="muted">投稿された4匹の編成を集計しています。同じポケモンを複数回使用した場合は、その回数分カウントします。</p>`+
- ranks.map(([j,n],i)=>{const mon=uxMons[j];return `<div class="ux-usage-item"><strong class="ux-usage-position">${i+1}位</strong><img src="${mon.img}" alt=""><span class="ux-usage-name">${safe(mon.name)}</span><strong class="ux-usage-count">${n}回</strong></div>`}).join('');
+ ranks.map(([j,n],i)=>{const mon=uxMons[j];return `<button type="button" class="ux-usage-item ux-usage-open" data-ux-usage-mon="${j}"><strong class="ux-usage-position">${competitionRank(ranks,i,r=>r[1])}位</strong><img src="${mon.img}" alt=""><span class="ux-usage-name">${safe(mon.name)}</span><strong class="ux-usage-count">${n}回 ›</strong></button>`}).join('');
+}
+function uxShowUsageStages(monIndex){
+ const mon=uxMons[monIndex];if(!mon)return;
+ const byStage=new Map();
+ for(const p of uxPosts){if(!uxStages[p.stageIndex]||!Array.isArray(p.team))continue;const uses=p.team.filter(j=>j===monIndex).length;if(uses)byStage.set(p.stageIndex,(byStage.get(p.stageIndex)||0)+uses)}
+ const rows=[...byStage.entries()].sort((a,b)=>b[1]-a[1]||a[0]-b[0]);
+ $('uxUsageDetailTitle').textContent=mon.name+' の使用ステージ';
+ $('uxUsageDetailList').innerHTML=rows.length?rows.map(([idx,count],i)=>{const st=uxStages[idx];return `<button type="button" class="ux-usage-stage" data-ux-usage-stage="${idx}"><strong>${competitionRank(rows,i,r=>r[1])}位</strong><img src="${st.img}" alt=""><span><b>${safe(st.name)}</b><small>${safe(st.stage)}</small></span><strong>${count}回 ›</strong></button>`}).join(''):'<p class="muted">使用されたステージがありません。</p>';
+ $('uxUsageDetail').showModal();
 }
 function uxRenderStage(){
  const ranking=uxStageView==='usage';
@@ -563,7 +573,7 @@ function uxRenderRanking(){
  const map=new Map();
  for(const p of uxPosts){if(!uxStages[p.stageIndex])continue;const set=map.get(p.uid)||new Set();set.add(p.stageIndex);map.set(p.uid,set)}
  const rows=[...map.entries()].map(([uid,stages])=>({uid,count:stages.size})).sort((a,b)=>b.count-a.count||a.uid.localeCompare(b.uid));
- $('uxRankingList').innerHTML=rows.length?rows.map((r,i)=>{const owner=profiles[r.uid]||{};return `<button class="ux-rank-person" data-ux-user="${safe(r.uid)}"><b class="ux-rank-num">${i+1}位</b>${uxAvatar(owner,r.uid)}<span class="ux-rank-name">${safe(owner.name||'ユーザー')}</span><strong>${r.count} / ${uxStages.length} ステージ</strong></button>`}).join(''):'<p class="muted">まだクリア報告がありません。</p>';
+ $('uxRankingList').innerHTML=rows.length?rows.map((r,i)=>{const owner=profiles[r.uid]||{};return `<button class="ux-rank-person" data-ux-user="${safe(r.uid)}"><b class="ux-rank-num">${competitionRank(rows,i,r=>r.count)}位</b>${uxAvatar(owner,r.uid)}<span class="ux-rank-name">${safe(owner.name||'ユーザー')}</span><strong>${r.count} / ${uxStages.length} ステージ</strong></button>`}).join(''):'<p class="muted">まだクリア報告がありません。</p>';
 }
 function uxRenderRates(){
  const counts=uxStages.map((_,i)=>uxPosts.filter(p=>p.stageIndex===i).length);
@@ -580,7 +590,7 @@ async function uxDeletePost(id){
 function uxFormOpen(post=null){uxEditing=post?.id||null;uxPhotoUrl=post?.image||'';uxTeam=post?.team?.map(j=>Number.isInteger(j)?j:null)||[null,null,null,null];$('uxPhoto').value='';$('uxDate').value=post?.clearDate||'';$('uxComment').value=post?.comment||'';$('uxFormTitle').textContent=post?'クリア報告を編集':'クリア報告を投稿';$('uxSubmit').textContent=post?'変更を保存':'投稿する';$('uxPhotoExisting').textContent=post?'登録済みの画像を使用します（変更可能）':'';$('uxTeamInputs').innerHTML=[0,1,2,3].map(i=>`<div class="ux-stage-row"><label>${i+1}枠目</label><input data-ux-team-input="${i}" placeholder="ポケモン名で検索" value="${safe(uxMons[uxTeam[i]]?.name||'')}" autocomplete="off"><div class="ux-suggest" id="uxSuggest${i}"></div></div>`).join('');uxGo('form')}
 function uxSuggest(i){const input=document.querySelector(`[data-ux-team-input="${i}"]`);uxTeam[i]=null;const q=input.value.trim().toLowerCase();$('uxSuggest'+i).innerHTML=q?uxMons.map((m,j)=>({...m,j})).filter(m=>m.name.toLowerCase().includes(q)).slice(0,15).map(m=>`<button data-ux-pick="${i}" data-ux-mon="${m.j}"><img src="${m.img}" alt="">${safe(m.name)}</button>`).join(''):''}
 async function uxSubmit(){if(!user)return;const f=$('uxPhoto').files[0];if(!f&&!uxPhotoUrl)return notify('クリアした瞬間の画像を選択してください');if(uxTeam.length!==4||uxTeam.some(j=>!Number.isInteger(j)))return notify('編成を4枠とも検索結果から選択してください');const btn=$('uxSubmit');busy(btn,true);try{const image=f?await uploadImage(f,`ux/${user.uid}/${Date.now()}.jpg`):uxPhotoUrl;const payload={uid:user.uid,stageIndex:uxStageIndex,image,clearDate:$('uxDate').value,team:[...uxTeam],comment:$('uxComment').value.trim()};if(uxEditing){const old=uxPosts.find(p=>p.id===uxEditing);if(!old||old.uid!==user.uid)throw Error('自分の投稿だけ編集できます');await updateDoc(doc(db,'uxReports',uxEditing),payload)}else await addDoc(collection(db,'uxReports'),{...payload,createdAt:serverTimestamp()});await uxLoad();uxGo('stage');notify(uxEditing?'投稿を更新しました':'クリア報告を投稿しました')}catch(e){notify('保存できません：'+errorText(e))}finally{busy(btn,false)}}
-function uxWire(){ $('uxEnter').onclick=uxEnter;$('uxReturn').onclick=uxExit;$('uxSearch').oninput=uxRenderStages;$('uxBack').onclick=()=>uxGo('home');$('uxFormBack').onclick=()=>uxGo('stage');$('uxAdd').onclick=()=>uxFormOpen();$('uxSubmit').onclick=uxSubmit;$('uxCard').onclick=()=>{$('showLoginCardBtn').click()};$('uxLogout').onclick=()=>signOut(auth);$('uxSettings').onclick=()=>uxGo('settings');document.querySelectorAll('[data-ux-page]').forEach(b=>b.onclick=()=>{if(b.dataset.uxPage==='profile'){uxProfileUid=user.uid;uxProfileView='ux'}uxGo(b.dataset.uxPage)});document.body.addEventListener('click',e=>{const rv=e.target.closest('[data-ux-ranking-view]');if(rv){uxRankingView=rv.dataset.uxRankingView;uxRenderRanking();return}const sv=e.target.closest('[data-ux-stage-view]');if(sv){uxStageView=sv.dataset.uxStageView;uxRenderStage();return}const stage=e.target.closest('[data-ux-stage]');if(stage){uxOpenStage(Number(stage.dataset.uxStage));return}const pick=e.target.closest('[data-ux-pick]');if(pick){const i=Number(pick.dataset.uxPick),j=Number(pick.dataset.uxMon);uxTeam[i]=j;document.querySelector(`[data-ux-team-input="${i}"]`).value=uxMons[j].name;$('uxSuggest'+i).innerHTML='';return}const del=e.target.closest('[data-ux-delete]');if(del){uxDeletePost(del.dataset.uxDelete);return}const edit=e.target.closest('[data-ux-edit]');if(edit){const post=uxPosts.find(p=>p.id===edit.dataset.uxEdit&&p.uid===user.uid);if(post)uxFormOpen(post);return}const person=e.target.closest('[data-ux-user]');if(person){uxProfileUid=person.dataset.uxUser;uxProfileView='ux';uxGo('profile');return}const toggle=e.target.closest('[data-profile-view]');if(toggle){if(uxMode){uxProfileView=toggle.dataset.profileView;uxRenderProfile()}else{roadProfileView=toggle.dataset.profileView;document.querySelectorAll('#roadProfileToggle button').forEach(b=>b.classList.toggle('active',b.dataset.profileView===roadProfileView));renderProfile()}}});$('uxTeamInputs').addEventListener('input',e=>{if(e.target.matches('[data-ux-team-input]'))uxSuggest(Number(e.target.dataset.uxTeamInput))})}
+function uxWire(){ $('uxUsageDetailClose').onclick=()=>$('uxUsageDetail').close();$('uxEnter').onclick=uxEnter;$('uxReturn').onclick=uxExit;$('uxSearch').oninput=uxRenderStages;$('uxBack').onclick=()=>uxGo('home');$('uxFormBack').onclick=()=>uxGo('stage');$('uxAdd').onclick=()=>uxFormOpen();$('uxSubmit').onclick=uxSubmit;$('uxCard').onclick=()=>{$('showLoginCardBtn').click()};$('uxLogout').onclick=()=>signOut(auth);$('uxSettings').onclick=()=>uxGo('settings');document.querySelectorAll('[data-ux-page]').forEach(b=>b.onclick=()=>{if(b.dataset.uxPage==='profile'){uxProfileUid=user.uid;uxProfileView='ux'}uxGo(b.dataset.uxPage)});document.body.addEventListener('click',e=>{const usageStage=e.target.closest('[data-ux-usage-stage]');if(usageStage){$('uxUsageDetail').close();uxOpenStage(Number(usageStage.dataset.uxUsageStage));return}const usageMon=e.target.closest('[data-ux-usage-mon]');if(usageMon){uxShowUsageStages(Number(usageMon.dataset.uxUsageMon));return}const rv=e.target.closest('[data-ux-ranking-view]');if(rv){uxRankingView=rv.dataset.uxRankingView;uxRenderRanking();return}const sv=e.target.closest('[data-ux-stage-view]');if(sv){uxStageView=sv.dataset.uxStageView;uxRenderStage();return}const stage=e.target.closest('[data-ux-stage]');if(stage){uxOpenStage(Number(stage.dataset.uxStage));return}const pick=e.target.closest('[data-ux-pick]');if(pick){const i=Number(pick.dataset.uxPick),j=Number(pick.dataset.uxMon);uxTeam[i]=j;document.querySelector(`[data-ux-team-input="${i}"]`).value=uxMons[j].name;$('uxSuggest'+i).innerHTML='';return}const del=e.target.closest('[data-ux-delete]');if(del){uxDeletePost(del.dataset.uxDelete);return}const edit=e.target.closest('[data-ux-edit]');if(edit){const post=uxPosts.find(p=>p.id===edit.dataset.uxEdit&&p.uid===user.uid);if(post)uxFormOpen(post);return}const person=e.target.closest('[data-ux-user]');if(person){uxProfileUid=person.dataset.uxUser;uxProfileView='ux';uxGo('profile');return}const toggle=e.target.closest('[data-profile-view]');if(toggle){if(uxMode){uxProfileView=toggle.dataset.profileView;uxRenderProfile()}else{roadProfileView=toggle.dataset.profileView;document.querySelectorAll('#roadProfileToggle button').forEach(b=>b.classList.toggle('active',b.dataset.profileView===roadProfileView));renderProfile()}}});$('uxTeamInputs').addEventListener('input',e=>{if(e.target.matches('[data-ux-team-input]'))uxSuggest(Number(e.target.dataset.uxTeamInput))})}
 
 function wire(){
  uxWire();
