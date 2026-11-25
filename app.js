@@ -172,8 +172,8 @@ function renderNotifications(){
  const mine=posts.filter(p=>p.uid===user.uid).sort((a,b)=>dateOf(a)-dateOf(b)||a.id.localeCompare(b.id));
  let top=[],prior=0;const events=[];const monthCounts=new Map();
  for(const p of mine){
-   top.push(p);top.sort((a,b)=>b.moves-a.moves);top=top.slice(0,100);
-   const next=Math.round(top.reduce((sum,x)=>sum+80+0.4*Math.min(50,Math.max(0,x.moves)),0)*10)/10;
+   top=bestRatePosts([...top,p]);
+   const next=sumPostRates(top);
    const delta=Math.round((next-prior)*10)/10;
    if(delta>0){
      const time=dateStr(dateOf(p));
@@ -196,7 +196,8 @@ function renderNotifications(){
    }
    prior=next;
  }
- $('notificationsList').innerHTML=events.length?events.reverse().map(e=>`<div class="notice-entry">${e.html}</div>`).join(''):'まだお知らせはありません。投稿によってレートが上がると表示されます。';
+ for(const t of earnedTitles(user.uid))events.push({sort:t.time,html:`<div class="notice-title title-earned">称号獲得！</div>${titlePlate(t)}<span class="notice-time">${safe(dateStr(new Date(t.time)))}</span>`});
+ $('notificationsList').innerHTML=events.length?events.sort((a,b)=>b.sort-a.sort).map(e=>`<div class="notice-entry">${e.html}</div>`).join(''):'まだお知らせはありません。投稿によってレートが上がると表示されます。';
 }
 function renderRateRanking(){
  const ids=[...new Set(posts.map(p=>p.uid))];
@@ -209,7 +210,7 @@ function renderRateRanking(){
 }
 function competitionRank(rows,index,score){let first=index;while(first>0&&score(rows[first-1])===score(rows[index]))first--;return first+1}
 function rankClass(rank){return rank===1?'rank-gold':rank===2?'rank-silver':rank===3?'rank-bronze':'rank-regular'}
-function postHtml(p,rank=null,rateGain=null){const owner=profiles[p.uid]||{};const canDelete=user&&((isAdmin&&adminMode)||p.uid===user.uid);return `<div class="item">${rank!==null?`<div class="rank ${rankClass(rank)}">${rank}位</div>`:''}<button class="secondary mini person" data-uid="${safe(p.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner,p.uid)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div><span class="pill">残り ${p.moves} 手</span> <span class="small">${safe(categoryLabel(p.category))}</span></div><div class="muted">${dateStr(dateOf(p))}</div>${rateGain===null?'':`<div class="post-rate-gain">レート増加：<strong>+${formatRate(rateGain)}pt</strong></div>`}</div><button class="secondary mini viewphoto" data-url="${safe(imageUrl(p.image))}">画像を見る</button>${canDelete?`<button class="danger mini deletepost" data-id="${safe(p.id)}">削除</button>`:''}</div>`}
+function postHtml(p,rank=null,rateGain=null){const owner=profiles[p.uid]||{};const canDelete=user&&((isAdmin&&adminMode)||p.uid===user.uid);return `<div class="item">${rank!==null?`<div class="rank ${rankClass(rank)}">${rank}位</div>`:''}<button class="secondary mini person" data-uid="${safe(p.uid)}" aria-label="プロフィールを見る" style="padding:3px">${avatar(owner,p.uid)}</button><div class="grow"><b>${safe(owner.name||'ユーザー')}</b><div><span class="pill">残り ${p.moves} 手</span> <span class="small">${safe(categoryLabel(p.category))}</span></div><div class="muted">${dateStr(dateOf(p))}</div>${rateGain===null?'':`<div class="post-rate-gain">レート増加：<strong>+${formatRate(rateGain)}pt</strong></div><div class="muted">獲得ポイント：${formatRate(pointsForPost(p))}pt</div>`}</div><button class="secondary mini viewphoto" data-url="${safe(imageUrl(p.image))}">画像を見る</button>${canDelete?`<button class="danger mini deletepost" data-id="${safe(p.id)}">削除</button>`:''}</div>`}
 
 // Season A begins in November 2026; subsequent seasons advance each calendar month.
 const SEASON_EPOCH=2026*12+10;
@@ -278,6 +279,23 @@ function socialLinks(owner){const links=Array.isArray(owner.snsLinks)?owner.snsL
   
 function profileIdentity(uid,owner,subtitle){return `<div class="shared-profile-identity">${avatar(owner,uxMode?null:uid,true)}<div class="shared-profile-person"><h2>${safe(owner.name||'ユーザー')}</h2><div class="muted">${safe(subtitle)}</div></div></div>`;}
 function populateSettings(){const profile=profiles[user.uid]||{};$('editName').value=profile.name||'';for(let i=0;i<3;i++)$('social'+(i+1)).value=(profile.snsLinks||[])[i]||''}
+// Titles are derived from completed seasons, using the same personal-best ranking as profile history.
+function earnedTitles(uid){
+ const now=currentSeasonMonth(), mine=posts.filter(p=>p.uid===uid), months=[...new Set(mine.map(p=>monthKey(dateOf(p))))].filter(m=>m>= '2026-11'&&m<now).sort().reverse();
+ const result=[];
+ for(const month of months){
+  const season=seasonForMonth(month);const [y,m]=month.split('-').map(Number);const time=new Date(y,m,1).getTime();
+  for(const cat of categories){
+   const rows=ranking(cat,month,true),i=rows.findIndex(p=>p.uid===uid);if(i<0)continue;
+   const rank=competitionRank(rows,i,p=>p.moves);if(rank>3)continue;
+   result.push({month,time,level:4-rank,label:season+' '+categoryLabel(cat).replace(/編成$/,'')+rank+'位',emoji:['🥇','🥈','🥉'][rank-1]});
+  }
+  const count=mine.filter(p=>monthKey(dateOf(p))===month).length;
+  for(const n of [10,20,30])if(count>=n)result.push({month,time,level:n/10,label:season+' 完走'+n+'回達成',emoji:['🎖️','🏆','👑'][n/10-1]});
+ }
+ return result;
+}
+function titlePlate(t){return `<div class="title-plate title-level-${t.level}"><span class="title-dot"></span><span class="title-label">${safe(t.label)}</span><span class="title-emoji">${t.emoji}</span></div>`}
 function renderProfile(){
  if(roadProfileView==='ux'){renderUxProfileInto('profileContent',profileUid||user.uid);return;}
  const uid=profileUid||user.uid,owner=profiles[uid]||{},mine=posts.filter(p=>p.uid===uid),best=sorted(mine)[0];
@@ -292,8 +310,9 @@ function renderProfile(){
   return `<div class="monthly-group"><b>${safe(month)}</b>${rows}</div>`;
  });
  const rateGains=postRateGains(uid);
- const historyPosts=(profileSort==='new'?[...mine].sort((a,b)=>dateOf(b)-dateOf(a)):sorted(mine)).map(p=>postHtml(p,null,rateGains.get(p.id)??0)).join('')||'<p class="muted">まだ投稿がありません</p>';
- $('profileContent').innerHTML=`${profileIdentity(uid,owner,uid===user.uid?'自分のプロフィール':'ユーザープロフィール')}<div class="profile-rating shared-profile-rating">レート <strong class="rate-number ${rateColorClass(ratingFor(uid))}">${formatRate(ratingFor(uid))}</strong>pt</div>${socialLinks(owner)?`<div class="social-links">${socialLinks(owner)}</div>`:''}<hr><div>投稿数（完走回数）</div><div class="stat">${mine.length} 回</div><div style="margin-top:12px">今月の投稿数</div><div class="stat">${thisMonthPosts} 回</div><h3>自己ベスト（最高残り手数）</h3>${best?postHtml(best):'<p class="muted">まだ記録がありません</p>'}<h3>月毎のランキング順位</h3>${history.join('')||'<p class="muted">ランキング履歴がありません</p>'}<h3>投稿履歴</h3><label for="profileSort">並び順</label><select id="profileSort" class="profile-sort"><option value="new" ${profileSort==='new'?'selected':''}>新しい順</option><option value="moves" ${profileSort==='moves'?'selected':''}>残り手数の多い順</option></select><div id="profilePosts">${historyPosts}</div>`;
+ const opened=new Set([...$('profileContent').querySelectorAll('details[open]')].map(x=>x.id));
+ const historyPosts=(profileSort==='points'?[...mine].sort((a,b)=>pointsForPost(b)-pointsForPost(a)||dateOf(b)-dateOf(a)):profileSort==='new'?[...mine].sort((a,b)=>dateOf(b)-dateOf(a)):sorted(mine)).map(p=>postHtml(p,null,rateGains.get(p.id)??0)).join('')||'<p class="muted">まだ投稿がありません</p>';
+ $('profileContent').innerHTML=`${profileIdentity(uid,owner,uid===user.uid?'自分のプロフィール':'ユーザープロフィール')}<div class="profile-rating shared-profile-rating">レート <strong class="rate-number ${rateColorClass(ratingFor(uid))}">${formatRate(ratingFor(uid))}</strong>pt</div>${socialLinks(owner)?`<div class="social-links">${socialLinks(owner)}</div>`:''}<hr><div>投稿数（完走回数）</div><div class="stat">${mine.length} 回</div><div style="margin-top:12px">今月の投稿数</div><div class="stat">${thisMonthPosts} 回</div><h3>自己ベスト（最高残り手数）</h3>${best?postHtml(best):'<p class="muted">まだ記録がありません</p>'}<details id="roadMonthlyDetails" ${opened.has('roadMonthlyDetails')?'open':''}><summary>月毎のランキング順位</summary>${history.join('')||'<p class="muted">ランキング履歴がありません</p>'}</details><details id="roadTitleDetails" ${opened.has('roadTitleDetails')?'open':''}><summary>称号一覧</summary>${earnedTitles(uid).map(titlePlate).join('')||'<p class="muted">まだ称号がありません</p>'}</details><details id="roadHistoryDetails" ${opened.has('roadHistoryDetails')?'open':''}><summary>投稿履歴</summary><label for="profileSort">並び順</label><select id="profileSort" class="profile-sort"><option value="new" ${profileSort==='new'?'selected':''}>新しい順</option><option value="moves" ${profileSort==='moves'?'selected':''}>残り手数の多い順</option><option value="points" ${profileSort==='points'?'selected':''}>獲得ポイント順</option></select><div id="profilePosts">${historyPosts}</div></details>`;
 }
 function roadHistoricalFeed(){
  const gains=new Map(),tierEvents=[];
@@ -549,7 +568,8 @@ function setupRateCalculator(){
  }
  function renderCalc(){
   const mv=$('calcMoves').value.trim(),points=$('calcPoints').value.trim();
-  if(mv===''||!Number.isSafeInteger(Number(mv))||Number(mv)<0){$('calcRateResult').textContent='0以上の整数を入力してください';}
+  if(mv===''||!$('calcCategory').value){$('calcRateResult').textContent='編成と残り手数を入力してください';}
+  else if(!Number.isSafeInteger(Number(mv))||Number(mv)<0){$('calcRateResult').textContent='0以上の整数を入力してください';}
   else{const cat=$('calcCategory').value;const val=calc(cat,Number(mv));$('calcRateResult').innerHTML=`<div class="calc-small">この記録の獲得レート</div><div class="calc-big">+${formatRate(val)}pt</div><div class="calc-small">${cat==='その他'?'84 ＋ 残り手数 × 0.4（最大40手）':'80 ＋ 残り手数 × 0.4（最大50手）'}</div>`;}
   if(points===''||!Number.isFinite(Number(points))){$('calcMovesResult').textContent='レートを数値で入力してください';return;}
   const target=Number(points);
