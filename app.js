@@ -319,18 +319,19 @@ function renderProfile(){
  });
  const rateGains=postRateGains(uid);
  const opened=new Set([...$('profileContent').querySelectorAll('details[open]')].map(x=>x.id));
- const milestones=new Map(), monthlyCounts=new Map();
- for(const p of [...mine].sort((a,b)=>dateOf(a)-dateOf(b)||String(a.id).localeCompare(String(b.id)))){const m=monthKey(dateOf(p)),n=(monthlyCounts.get(m)||0)+1;monthlyCounts.set(m,n);if([10,20,30].includes(n))milestones.set(p.id,n);}
- const historyPosts=(profileSort==='points'?[...mine].sort((a,b)=>pointsForPost(b)-pointsForPost(a)||dateOf(b)-dateOf(a)):profileSort==='new'?[...mine].sort((a,b)=>dateOf(b)-dateOf(a)):sorted(mine)).map(p=>postHtml(p,null,rateGains.get(p.id)??0)+(milestones.has(p.id)?`<div class="history-monthly-complete"><b>MONTHLY COMPLETE!</b><div>今月の完走回数が${milestones.get(p.id)}回に達しました！</div><span class="notice-time">${safe(dateStr(dateOf(p)))}</span></div>`:'')).join('')||'<p class="muted">まだ投稿がありません</p>';
+ const historyPosts=(profileSort==='points'?[...mine].sort((a,b)=>pointsForPost(b)-pointsForPost(a)||dateOf(b)-dateOf(a)):profileSort==='new'?[...mine].sort((a,b)=>dateOf(b)-dateOf(a)):sorted(mine)).map(p=>postHtml(p,null,rateGains.get(p.id)??0)).join('')||'<p class="muted">まだ投稿がありません</p>';
  $('profileContent').innerHTML=`${profileIdentity(uid,owner,uid===user.uid?'自分のプロフィール':'ユーザープロフィール')}<div class="profile-rating shared-profile-rating">レート <strong class="rate-number ${rateColorClass(ratingFor(uid))}">${formatRate(ratingFor(uid))}</strong>pt</div><div class="profile-rating shared-profile-rating">月間レート ${monthlyDisplay(monthlyRate(uid))}</div>${socialLinks(owner)?`<div class="social-links">${socialLinks(owner)}</div>`:''}<hr><div>投稿数（完走回数）</div><div class="stat">${mine.length} 回</div><div style="margin-top:12px">今月の投稿数</div><div class="stat">${thisMonthPosts} 回</div><h3>自己ベスト（最高残り手数）</h3>${best?postHtml(best):'<p class="muted">まだ記録がありません</p>'}<details id="roadMonthlyBest" ${opened.has('roadMonthlyBest')?'open':''}><summary>今月のベスト枠</summary>${monthlySlots(uid)}</details><details id="roadMonthlyDetails" ${opened.has('roadMonthlyDetails')?'open':''}><summary>月毎の記録</summary>${history.join('')||'<p class="muted">ランキング履歴がありません</p>'}</details><details id="roadTitleDetails" ${opened.has('roadTitleDetails')?'open':''}><summary>称号一覧</summary>${earnedTitles(uid).map(titlePlate).join('')||'<p class="muted">まだ称号がありません</p>'}</details><details id="roadHistoryDetails" ${opened.has('roadHistoryDetails')?'open':''}><summary>投稿履歴</summary><label for="profileSort">並び順</label><select id="profileSort" class="profile-sort"><option value="new" ${profileSort==='new'?'selected':''}>新しい順</option><option value="moves" ${profileSort==='moves'?'selected':''}>残り手数の多い順</option><option value="points" ${profileSort==='points'?'selected':''}>獲得ポイント順</option></select><div id="profilePosts">${historyPosts}</div></details>`;
 }
 function roadHistoricalFeed(){
- const gains=new Map(),tierEvents=[];
+ const gains=new Map(),tierEvents=[],monthlyEvents=[];
  // Rebuild historical rates from all saved posts, using the same top-100 rule as the profile.
  for(const uid of new Set(posts.map(p=>p.uid))){
   const history=posts.filter(p=>p.uid===uid).sort((a,b)=>dateOf(a)-dateOf(b)||a.id.localeCompare(b.id));
   let top=[],prior=0;
+  const monthlyCounts=new Map();
   for(const p of history){
+   const month=monthKey(dateOf(p)), count=(monthlyCounts.get(month)||0)+1;monthlyCounts.set(month,count);
+   if([10,20,30].includes(count))monthlyEvents.push({type:"monthly",uid,post:p,count,time:dateOf(p).getTime()});
    top=bestRatePosts([...top,p]);
    const next=sumPostRates(top);
    gains.set(p.id,Math.max(0,Math.round((next-prior)*10)/10));
@@ -344,14 +345,19 @@ function roadHistoricalFeed(){
  }
  const feed=posts.map(p=>({type:'post',post:p,time:dateOf(p).getTime()}));
  for(const event of tierEvents)feed.push({type:'tier',...event});
- feed.sort((a,b)=>b.time-a.time||(a.type==='tier'?-1:1)-(b.type==='tier'?-1:1)||String(b.post?.id||'').localeCompare(String(a.post?.id||'')));
- return {feed,gains,tierEvents};
+ feed.push(...monthlyEvents);
+ feed.sort((a,b)=>b.time-a.time||(a.type==='monthly'?-2:a.type==='tier'?-1:1)-(b.type==='monthly'?-2:b.type==='tier'?-1:1)||String(b.post?.id||'').localeCompare(String(a.post?.id||'')));
+ return {feed,gains,tierEvents,monthlyEvents};
 }
 function renderRoadFeed(){
  const target=$('roadFeedList');if(!target)return;
- const {feed,gains,tierEvents}=roadHistoricalFeed();
- $('roadFeedCount').textContent=`全${posts.length}件の投稿・レート帯変更${tierEvents.length}件`;
+ const {feed,gains,tierEvents,monthlyEvents}=roadHistoricalFeed();
+ $('roadFeedCount').textContent=`全${posts.length}件の投稿・レート帯変更${tierEvents.length}件・完走達成${monthlyEvents.length}件`;
  target.innerHTML=feed.length?feed.map(item=>{
+  if(item.type==='monthly'){
+   const owner=profiles[item.uid]||{};
+   return `<article class="road-chat-message road-chat-tier-message"><button type="button" class="road-chat-avatar person" data-uid="${safe(item.uid)}" aria-label="${safe(owner.name||'ユーザー')}のプロフィール">${avatar(owner,item.uid)}</button><div class="road-chat-content"><div class="road-chat-byline"><button type="button" class="road-chat-author person" data-uid="${safe(item.uid)}">${safe(owner.name||'ユーザー')}</button><time>${dateStr(dateOf(item.post))}</time></div><div class="road-chat-tier-event"><span class="tier-icon" aria-hidden="true">🏁</span><div class="tier-details"><strong style="color:#eaff36">MONTHLY COMPLETE!</strong><div>今月の完走回数が${item.count}回に達しました！</div></div></div></div></article>`;
+  }
   if(item.type==='tier'){
    const owner=profiles[item.uid]||{};
    return `<article class="road-chat-message road-chat-tier-message"><button type="button" class="road-chat-avatar person" data-uid="${safe(item.uid)}" aria-label="${safe(owner.name||'ユーザー')}のプロフィール">${avatar(owner,item.uid)}</button><div class="road-chat-content"><div class="road-chat-byline"><button type="button" class="road-chat-author person" data-uid="${safe(item.uid)}">${safe(owner.name||'ユーザー')}</button><time>${dateStr(dateOf(item.post))}</time></div><div class="road-chat-tier-event"><span class="tier-icon" aria-hidden="true">🏅</span><div class="tier-details"><strong>RATING UP! <span class="rate-number ${rateColorClass(item.tier.threshold)}">${safe(item.tier.label)}</span> に到達！</strong><div class="muted">レート <strong class="rate-number ${rateColorClass(item.rate)}">${formatRate(item.rate)}</strong>pt</div></div></div></div></article>`;
